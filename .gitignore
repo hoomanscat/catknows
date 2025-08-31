@@ -1,7 +1,15 @@
+# venv & caches
 .venv/
 __pycache__/
 *.pyc
-exports/raw/
-*.sqlite*
-*.db-*
-*.log
+
+# local data/exports
+exports/
+*.db
+*.sqlite
+*.sqlite3
+
+# secrets
+cookie.txt
+.env
+.env.*
