@@ -1,3 +1,4 @@
+# REPLACE FILE: .github/workflows/ci.yml
 name: CI
 
 on:
@@ -8,28 +9,40 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Make the secret available as an env var (avoids VS Code 'secrets' linter issues in 'if')
+      SKOOL_COOKIE: ${{ secrets.SKOOL_COOKIE }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Install
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
           pip install -e .
+
       - name: CLI smoke
         run: skoolhud --help
 
-      # Optional: Live-Run nur mit Secret
+      # Optional live run guarded by shell check (no GitHub expression 'if' needed)
       - name: Daily update (optional)
-        if: ${{ secrets.SKOOL_COOKIE != '' }}
-        env:
-          SKOOL_COOKIE: ${{ secrets.SKOOL_COOKIE }}
         run: |
+          if [ -z "${SKOOL_COOKIE}" ]; then
+            echo "SKOOL_COOKIE not set; skipping live run."
+            exit 0
+          fi
           echo "$SKOOL_COOKIE" > cookie.txt
           skoolhud init-db
-          skoolhud add-tenant --slug hoomans --group hoomans --cookie "$SKOOL_COOKIE"
+          skoolhud add-tenant --slug hoomans --group hoomans --cookie "$(cat cookie.txt)"
           skoolhud test-tenant --slug hoomans
           python update_all.py
-          python skoolhud/ai/agents/run_all_agents.py
+          python skoolhud/ai/agents/run_all_agents.py --slug hoomans
