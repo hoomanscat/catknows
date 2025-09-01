@@ -5,6 +5,8 @@ from .models import Tenant
 from .config import settings
 from .fetcher import SkoolFetcher
 from .normalizer import normalize_members_json
+from skoolhud.vector.ingest import ingest as ingest_vectors
+from skoolhud.vector.query import search as search_vectors
 
 app = typer.Typer(help="Skool HUD CLI")
 
@@ -25,6 +27,22 @@ def count_members(slug: str = typer.Option(..., help="Tenant Slug")):
             raise typer.Exit(code=1)
         count = s.query(Member).filter(Member.tenant==slug).count()
         typer.echo(f"Tenant '{slug}' hat {count} Member in der DB.")
+
+@app.command("vectors-ingest")
+def vectors_ingest(tenant: str = typer.Option("hoomans", "--tenant")):
+    """Vektor-Store mit Reports/CSVs füttern."""
+    import os
+    os.environ["TENANT"] = tenant
+    ingest_vectors()
+
+@app.command("vectors-search")
+def vectors_search(
+    query: str = typer.Argument(...),
+    tenant: str = typer.Option("hoomans", "--tenant"),
+    k: int = typer.Option(5, "--k"),
+):
+    """Semantische Suche im Vektor-Store (tenant-isoliert)."""
+    search_vectors(query=query, tenant=tenant, k=k)
 
 @app.command()
 def add_tenant(slug: str = typer.Option(..., help="Kurzname, z. B. 'hoomans'"),
