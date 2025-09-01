@@ -5,11 +5,11 @@ from pathlib import Path
 SLUG = "hoomans"
 COOKIE_FILE = Path(__file__).parent / "cookie.txt"
 
-def run(cmd):
+def run(cmd: list[str]):
     print(f"\n>>> {' '.join(cmd)}")
-    result = subprocess.run(cmd, text=True)
-    if result.returncode != 0:
-        sys.exit(result.returncode)
+    res = subprocess.run(cmd, text=True)
+    if res.returncode != 0:
+        sys.exit(res.returncode)
 
 def main():
     print("==== SkoolHUD Update gestartet ====")
@@ -18,22 +18,23 @@ def main():
         print(f"FEHLER: cookie.txt fehlt in {COOKIE_FILE}")
         sys.exit(1)
 
-    # 1. Members abrufen
+    # 1) Members abrufen
     run(["skoolhud", "fetch-members-all", "--slug", SLUG])
 
-    # 2. Leaderboard abrufen
+    # 2) Leaderboard abrufen
     run(["skoolhud", "fetch-leaderboard", "--slug", SLUG])
 
-    # 3. Leaderboard normalisieren für alle Fenster
+    # 3) Leaderboard normalisieren (all/30/7)
     for w in ["all", "30", "7"]:
         run(["skoolhud", "normalize-leaderboard", "--slug", SLUG, "--window", w])
 
-    # 4. Status prüfen
+    # 4) Status prüfen
     run(["skoolhud", "count-members", "--slug", SLUG])
 
-    print("\n==== SkoolHUD Update fertig ====")
+    # 5) Täglichen Snapshot in die DB schreiben (Positionsargument, kein --slug)
+    run(["skoolhud", "snapshot-members-daily", SLUG])
 
-subprocess.run(["skoolhud", "snapshot-members-daily", "--slug", "hoomans"], check=True)
+    print("\n==== SkoolHUD Update fertig ====")
 
 if __name__ == "__main__":
     main()
