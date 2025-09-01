@@ -12,12 +12,40 @@ def norm(x, hi):
         return 0.0
     return min(1.0, float(x)/float(hi))
 
-def recency_bonus(last_active_utc: datetime):
-    if not last_active_utc:
+def _to_datetime_utc(x):
+    """Nimmt datetime oder ISO-String und gibt datetime (UTC) zurück, sonst None."""
+    if x is None:
+        return None
+    if isinstance(x, datetime):
+        return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
+    if isinstance(x, str):
+        s = x.strip()
+        # ISO-Strings mit 'Z' erlauben
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+    return None
+
+def _to_iso(x):
+    """Gibt ISO-String zurück, egal ob datetime oder str oder None."""
+    if x is None:
+        return ""
+    if isinstance(x, datetime):
+        return x.astimezone(timezone.utc).isoformat()
+    if isinstance(x, str):
+        return x
+    return str(x)
+
+def recency_bonus(last_active_utc):
+    dt = _to_datetime_utc(last_active_utc)
+    if not dt:
         return 0.0
     now = datetime.now(timezone.utc)
-    delta = now - last_active_utc.replace(tzinfo=timezone.utc)
-    days = delta.total_seconds() / 86400.0
+    days = (now - dt).total_seconds() / 86400.0
     if days <= 1:   return 1.0
     if days <= 3:   return 0.9
     if days <= 7:   return 0.8
@@ -49,7 +77,7 @@ def main():
                 "points_7d": m.points_7d or 0,
                 "points_30d": m.points_30d or 0,
                 "points_all": m.points_all or 0,
-                "last_active_at_utc": m.last_active_at_utc.isoformat() if m.last_active_at_utc else "",
+                "last_active_at_utc": _to_iso(m.last_active_at_utc),
                 "score": score,
             })
     finally:
