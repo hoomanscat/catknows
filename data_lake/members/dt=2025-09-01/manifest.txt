@@ -1,3 +1,0 @@
-rows=375
-parquet=False
-created_utc=2025-09-01T08:41:27.915875+00:00
