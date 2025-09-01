@@ -1,0 +1,37 @@
+name: Daily
+
+on:
+  schedule:
+    - cron: "5 5 * * *"   # täglich 05:05 UTC (~07:05 Berlin)
+  workflow_dispatch:
+
+jobs:
+  run-daily:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Write cookie
+        if: ${{ secrets.SKOOL_COOKIE != '' }}
+        run: |
+          echo "${{ secrets.SKOOL_COOKIE }}" > cookie.txt
+      - name: Init DB & Tenant
+        if: ${{ secrets.SKOOL_COOKIE != '' }}
+        run: |
+          skoolhud init-db
+          skoolhud add-tenant --slug hoomans --group hoomans --cookie "$(cat cookie.txt)"
+          skoolhud test-tenant --slug hoomans
+      - name: Run daily
+        if: ${{ secrets.SKOOL_COOKIE != '' }}
+        run: |
+          python update_all.py
+          python skoolhud/ai/agents/run_all_agents.py
