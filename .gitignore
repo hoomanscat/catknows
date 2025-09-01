@@ -1,9 +1,9 @@
-# venv & caches
+﻿# venv & caches
 .venv/
 __pycache__/
 *.pyc
 
-# local data/exports
+# local data / outputs
 exports/
 data_lake/
 *.db
