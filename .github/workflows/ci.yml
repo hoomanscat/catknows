@@ -46,3 +46,6 @@ jobs:
           skoolhud test-tenant --slug hoomans
           python update_all.py
           python skoolhud/ai/agents/run_all_agents.py --slug hoomans
+      - name: Run verify_system
+        run: |
+          python verify_system.py
