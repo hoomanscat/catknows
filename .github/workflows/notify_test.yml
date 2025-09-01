@@ -28,8 +28,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install (script only)
-        run: python -m pip install -U pip
+      - name: Show which webhooks are set (redacted)
+        shell: bash
+        run: |
+          for k in DISCORD_WEBHOOK_STATUS DISCORD_WEBHOOK_ALERTS DISCORD_WEBHOOK_KPI DISCORD_WEBHOOK_MOVERS DISCORD_WEBHOOK_HEALTH DISCORD_WEBHOOK_NEWJOINERS; do
+            if [ -n "${!k}" ]; then
+              # nur die Domain + Anfang zeigen, Token maskieren
+              head="$(printf "%s" "${!k}" | sed 's/\?.*$//' )"
+              echo "$k=SET  head=${head:0:60}..."
+            else
+              echo "$k=EMPTY"
+            fi
+          done
 
       - name: Fake verify.txt (Demo)
         run: |
@@ -37,28 +47,30 @@ jobs:
           Members: 375 (with points_all: 362) | LeaderboardSnapshots: 420
           MemberDailySnapshot: today=25 | total=25
           TXT
+          echo "verify.txt:"
+          cat verify.txt
 
-      - name: Send Status
+      - name: Notify — Status
         run: python .github/scripts/discord_notify.py
-        env:
-          MODE: status
+        env: { MODE: status }
+        continue-on-error: true
 
-      - name: Send KPI
+      - name: Notify — KPI
         run: python .github/scripts/discord_notify.py
-        env:
-          MODE: kpi
+        env: { MODE: kpi }
+        continue-on-error: true
 
-      - name: Send Movers
+      - name: Notify — Movers
         run: python .github/scripts/discord_notify.py
-        env:
-          MODE: movers
+        env: { MODE: movers }
+        continue-on-error: true
 
-      - name: Send Health
+      - name: Notify — Health
         run: python .github/scripts/discord_notify.py
-        env:
-          MODE: health
+        env: { MODE: health }
+        continue-on-error: true
 
-      - name: Send New Joiners
+      - name: Notify — New Joiners
         run: python .github/scripts/discord_notify.py
-        env:
-          MODE: joiners
+        env: { MODE: joiners }
+        continue-on-error: true
