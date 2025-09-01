@@ -165,3 +165,20 @@ def guess_pagination_hints(root):
             hits.append((path, preview))
     return hits
 
+# PATCH/APPEND: skoolhud/utils.py  (am Ende hinzufügen)
+from pathlib import Path
+from datetime import date as _date
+
+def reports_dir_for(slug: str) -> Path:
+    d = Path("exports") / "reports" / slug
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+def datalake_members_dir_for(slug: str, day: _date | None = None) -> Path:
+    base = Path("data_lake") / slug / "members"
+    base.mkdir(parents=True, exist_ok=True)
+    if day:
+        part = base / f"dt={day.isoformat()}"
+        part.mkdir(parents=True, exist_ok=True)
+        return part
+    return base

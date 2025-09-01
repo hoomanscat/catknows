@@ -1,75 +1,55 @@
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+# REPLACE FILE: skoolhud/ai/agents/health_score.py
+import argparse
+from datetime import datetime, timezone
 import csv
-
 from skoolhud.db import SessionLocal
 from skoolhud.models import Member
+from skoolhud.utils import reports_dir_for
 
-OUT_DIR = Path("exports/reports")
-
-def norm(x, hi):
-    if x is None or x <= 0:
-        return 0.0
-    return min(1.0, float(x)/float(hi))
-
-def _to_datetime_utc(x):
-    """Nimmt datetime oder ISO-String und gibt datetime (UTC) zurück, sonst None."""
-    if x is None:
-        return None
-    if isinstance(x, datetime):
-        return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
-    if isinstance(x, str):
-        s = x.strip()
-        # ISO-Strings mit 'Z' erlauben
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        try:
-            dt = datetime.fromisoformat(s)
-            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            return None
-    return None
-
-def _to_iso(x):
-    """Gibt ISO-String zurück, egal ob datetime oder str oder None."""
-    if x is None:
-        return ""
-    if isinstance(x, datetime):
-        return x.astimezone(timezone.utc).isoformat()
-    if isinstance(x, str):
-        return x
+def norm(x, hi): return 0.0 if x is None or x <= 0 else min(1.0, float(x)/float(hi))
+def _to_dt(x):
+    if x is None: return None
+    if isinstance(x, datetime): return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
+    s = str(x).strip()
+    if s.endswith("Z"): s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except: return None
+def _to_iso(x): 
+    if x is None: return ""
+    if isinstance(x, datetime): return x.astimezone(timezone.utc).isoformat()
     return str(x)
 
-def recency_bonus(last_active_utc):
-    dt = _to_datetime_utc(last_active_utc)
-    if not dt:
-        return 0.0
-    now = datetime.now(timezone.utc)
-    days = (now - dt).total_seconds() / 86400.0
-    if days <= 1:   return 1.0
-    if days <= 3:   return 0.9
-    if days <= 7:   return 0.8
-    if days <= 14:  return 0.6
-    if days <= 30:  return 0.4
-    if days <= 60:  return 0.2
+def recency_bonus(last_active):
+    dt = _to_dt(last_active)
+    if not dt: return 0.0
+    days = (datetime.now(timezone.utc) - dt).total_seconds()/86400
+    if days <= 1: return 1.0
+    if days <= 3: return 0.9
+    if days <= 7: return 0.8
+    if days <= 14: return 0.6
+    if days <= 30: return 0.4
+    if days <= 60: return 0.2
     return 0.0
 
-def health_score(p7, p30, level, last_active_utc):
-    # Gewichte: 7d (40%), 30d (30%), Recency (20%), Level (10%)
+def health_score(p7, p30, lvl, last):
     s7  = norm(p7 or 0,  max(50, (p7 or 0), 200))
     s30 = norm(p30 or 0, max(150, (p30 or 0), 600))
-    sLv = norm(level or 0, 20)
-    sRc = recency_bonus(last_active_utc)
-    score = 100.0 * (0.40*s7 + 0.30*s30 + 0.20*sRc + 0.10*sLv)
-    return round(score, 1)
+    sLv = norm(lvl or 0, 20)
+    sRc = recency_bonus(last)
+    return round(100*(0.40*s7 + 0.30*s30 + 0.20*sRc + 0.10*sLv), 1)
 
 def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--slug", default="hoomans")
+    args = ap.parse_args()
+
+    out_dir = reports_dir_for(args.slug)
     s = SessionLocal()
     rows = []
     try:
         for m in s.query(Member).all():
-            score = health_score(m.points_7d, m.points_30d, m.level_current, m.last_active_at_utc)
             rows.append({
                 "user_id": m.user_id,
                 "name": m.name or "",
@@ -78,39 +58,28 @@ def main():
                 "points_30d": m.points_30d or 0,
                 "points_all": m.points_all or 0,
                 "last_active_at_utc": _to_iso(m.last_active_at_utc),
-                "score": score,
+                "score": health_score(m.points_7d, m.points_30d, m.level_current, m.last_active_at_utc),
             })
     finally:
         s.close()
 
-    # CSV schreiben
-    csv_path = OUT_DIR / "member_health.csv"
+    csv_path = out_dir / "member_health.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else [])
-        writer.writeheader()
-        writer.writerows(rows)
+        writer.writeheader(); writer.writerows(rows)
     print(f"CSV geschrieben: {csv_path}")
 
-    # Advocates / At Risk
     advocates = sorted(rows, key=lambda r: r["score"], reverse=True)[:10]
-    # "at risk": niedriger Score, aber hatten mal nennenswerte 30d / all (Reaktivierungspotential)
-    at_risk = sorted(
-        [r for r in rows if r["score"] < 40 and (r["points_30d"] > 0 or r["points_all"] > 50)],
-        key=lambda r: r["score"]
-    )[:10]
-
-    # Markdown Quick Report
-    md_lines = ["# Member Health — Top Advocates & At Risk", ""]
-    md_lines.append("## Advocates (Top 10)")
+    at_risk = sorted([r for r in rows if r["score"] < 40 and (r["points_30d"] > 0 or r["points_all"] > 50)],
+                     key=lambda r: r["score"])[:10]
+    md = ["# Member Health — Top Advocates & At Risk", "", "## Advocates (Top 10)"]
     for r in advocates:
-        md_lines.append(f"- {r['name']} — score {r['score']} | 7d:{r['points_7d']} 30d:{r['points_30d']} lvl:{r['level']}")
-    md_lines.append("")
-    md_lines.append("## At Risk (Top 10)")
+        md.append(f"- {r['name']} — score {r['score']} | 7d:{r['points_7d']} 30d:{r['points_30d']} lvl:{r['level']}")
+    md.append(""); md.append("## At Risk (Top 10)")
     for r in at_risk:
-        md_lines.append(f"- {r['name']} — score {r['score']} | 7d:{r['points_7d']} 30d:{r['points_30d']} all:{r['points_all']}")
-    md_path = OUT_DIR / "member_health_summary.md"
-    md_path.write_text("\n".join(md_lines), encoding="utf-8")
-    print(f"Summary geschrieben: {md_path}")
+        md.append(f"- {r['name']} — score {r['score']} | 7d:{r['points_7d']} 30d:{r['points_30d']} all:{r['points_all']}")
+    (out_dir / "member_health_summary.md").write_text("\n".join(md), encoding="utf-8")
+    print(f"Summary geschrieben: {(out_dir / 'member_health_summary.md')}")
 
 if __name__ == "__main__":
     main()

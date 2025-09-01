@@ -1,69 +1,30 @@
-from datetime import datetime, timezone
-from pathlib import Path
-import csv
-
+# REPLACE FILE: skoolhud/ai/agents/export_members_snapshot.py
+import argparse, csv
+from datetime import datetime, timezone, date
 from skoolhud.db import SessionLocal
 from skoolhud.models import Member
-
-# Data-Lake Ordner (außerhalb von exports/reports)
-BASE_DIR = Path("data_lake/members")
-
-def _to_datetime_utc(x):
-    if x is None:
-        return None
-    if isinstance(x, datetime):
-        return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
-    if isinstance(x, str):
-        s = x.strip()
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        try:
-            dt = datetime.fromisoformat(s)
-            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-        except Exception:
-            return None
-    return None
+from skoolhud.utils import datalake_members_dir_for
 
 def _to_iso(x):
-    if x is None:
-        return ""
-    if isinstance(x, datetime):
-        return x.astimezone(timezone.utc).isoformat()
-    if isinstance(x, str):
-        return x
+    if x is None: return ""
+    if isinstance(x, datetime): return x.astimezone(timezone.utc).isoformat()
     return str(x)
 
-def ensure_dir(p: Path):
-    p.mkdir(parents=True, exist_ok=True)
-
-def write_csv(path: Path, rows, fieldnames):
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(rows)
-
-def try_write_parquet(path: Path, rows, fieldnames):
-    try:
-        import pandas as pd  # pyarrow optional
-        df = pd.DataFrame(rows, columns=fieldnames)
-        df.to_parquet(path, index=False)   # nutzt pyarrow/fastparquet, falls vorhanden
-        return True
-    except Exception:
-        return False
-
 def main():
-    now = datetime.now(timezone.utc)
-    dt = now.strftime("%Y-%m-%d")
-    # Partition wie: data_lake/members/dt=2025-09-01/
-    part_dir = BASE_DIR / f"dt={dt}"
-    ensure_dir(part_dir)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--slug", default="hoomans")
+    args = ap.parse_args()
+
+    today = date.today()
+    part_dir = datalake_members_dir_for(args.slug, today)
+    path = part_dir / "members.csv"
 
     s = SessionLocal()
     rows = []
     try:
         for m in s.query(Member).all():
             rows.append({
-                "tenant": getattr(m, "tenant", None),
+                "tenant": args.slug,
                 "user_id": m.user_id,
                 "name": m.name or "",
                 "email": m.email or "",
@@ -74,34 +35,21 @@ def main():
                 "rank_7d": m.rank_7d,
                 "rank_30d": m.rank_30d,
                 "rank_all": m.rank_all,
-                "joined_date": _to_iso(getattr(m, "joined_date", None)),
                 "last_active_at_utc": _to_iso(m.last_active_at_utc),
-                "captured_at_utc": now.isoformat(),
+                "joined_date": _to_iso(getattr(m, "joined_date", "")),
             })
     finally:
         s.close()
 
-    fieldnames = list(rows[0].keys()) if rows else [
-        "tenant","user_id","name","email","level_current",
-        "points_7d","points_30d","points_all",
-        "rank_7d","rank_30d","rank_all",
-        "joined_date","last_active_at_utc","captured_at_utc"
-    ]
-
-    csv_path = part_dir / "members.csv"
-    write_csv(csv_path, rows, fieldnames)
-
-    # Optional Parquet (nur, wenn libs vorhanden)
-    parquet_ok = try_write_parquet(part_dir / "members.parquet", rows, fieldnames)
-
-    # ein kleines Manifest mit Metadaten
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else [])
+        w.writeheader(); w.writerows(rows)
     (part_dir / "_SUCCESS").write_text("", encoding="utf-8")
     (part_dir / "manifest.txt").write_text(
-        f"rows={len(rows)}\nparquet={parquet_ok}\ncreated_utc={now.isoformat()}\n",
+        f"rows={len(rows)} generated_at={datetime.now(timezone.utc).isoformat()}",
         encoding="utf-8"
     )
-
-    print(f"Snapshot geschrieben: {csv_path}  (rows={len(rows)}, parquet={parquet_ok})")
+    print(f"geschrieben: {path}")
 
 if __name__ == "__main__":
     main()
