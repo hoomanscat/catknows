@@ -1,48 +1,44 @@
-# DEV Checkliste — Catknows / SkoolHUD
+# Dev Checklist – SkoolHUD
 
-## 1. Setup & Installation
-- [ ] Repo geklont und `.venv` eingerichtet
-- [ ] `requirements.txt` installiert
+## ✅ Core Setup
+- [x] Repo-Struktur clean (`skoolhud/`, `exports/`, `.github/`)  
+- [x] `.env` mit SKOOL_COOKIE + Discord Webhooks  
+- [x] Alembic DB-Init (`alembic upgrade head`)  
+- [x] `daily_runner.py` orchestriert Pipelines
 
-## 2. Datenbank & Migration
-- [ ] `init-db` ausgeführt
-- [ ] `alembic upgrade head` ohne Fehler durchgelaufen
+## 🛠️ Local Development
+- [ ] `python update_all.py` → Fetch + Normalize  
+- [ ] `skoolhud snapshot-members-daily hoomans`  
+- [ ] `python skoolhud/ai/agents/run_all_agents.py`  
+- [ ] `python skoolhud/vector/ingest.py` (falls Embeddings aktiv)  
+- [ ] `python skoolhud/discord/bot.py` (für Bot-Integration)
 
-## 3. Tenant-Konfiguration
-- [ ] Cookie erfolgreich über CLI hinzugefügt (`add-tenant`)
-- [ ] `test-tenant` schlägt nicht fehl
+## 📊 Exports & Reports
+- [x] Raw JSON unter `exports/raw/<tenant>/`  
+- [x] Normalized CSV unter `exports/normalized/`  
+- [x] Reports unter `exports/reports/` (Health, KPI, Movers, etc.)  
+- [x] Discord Notify → Channels
 
-## 4. Agenten laufen lokal
-- [ ] `run_all_agents.py --slug hoomans` erstellt alle Reports
-- [ ] Inhalte in `exports/reports/hoomans/` sichtbar
+## 🚀 CI/CD
+- [x] `.github/workflows/daily.yml` → Täglicher Run  
+- [x] `.github/workflows/notify_test.yml` → Test Webhooks  
+- [ ] Multi-Tenant Runner (serienweise)  
+- [ ] Rate-Limit Safety (>=15s Delay zwischen API Calls)
 
-## 5. Backfill (falls benötigt)
-- [ ] `backfill_member_daily_from_datalake.py` ausgeführt
-- [ ] `backfill_member_daily_from_leaderboards.py` ohne DateTime-Fehler
-- [ ] `verify_system.py` zeigt valide tägliche Snapshots
+## 🧩 Vector Store
+- [x] `chromadb` Integration (`vector_store/`)  
+- [x] Collection `skool_members`  
+- [ ] Automatischer Ingest beim Daily Run  
+- [ ] Embeddings statt Rohtext (`sentence-transformers`)
 
-## 6. CI & Discord (GitHub Actions)
-- [ ] Secrets für Discord-Webhooks gesetzt
-- [ ] `daily.yml` läuft fehlerfrei (Notify-Test ok)
-- [ ] Artefakte (`reports/{slug}`) werden im CI hochgeladen
-- [ ] Discord-Kanäle empfangen korrekte Embeds (Status, KPI, Movers etc.)
+## 🤖 Discord Bot
+- [ ] `DISCORD_BOT_TOKEN` im `.env`  
+- [ ] Bot mit OAuth2 Link zum Server hinzufügen  
+- [ ] Slash-Commands (`!who-knows <topic>`)  
+- [ ] Query → Vector Store → Antwort mit Member-Infos
 
-## 7. Struktur & Cleanup
-- [ ] Agenten schreiben in tenant-spezifische Verzeichnisse
-- [ ] `.gitignore` aktualisiert (keine lokalen .db oder exports gepusht)
-- [ ] Alembic-Versionen committed für Schema-Konsistenz
-
-## 8. Zusätzliche Features (optional)
-- [ ] `notify_test.yml` bereit für manuelle Discord-Tests
-- [ ] Summary‑Embed implementieren (falls gewünscht)
-- [ ] Dashboard (z. B. Streamlit) zur Live-Visualisierung
-
----
-
-##  Tipps
-- Bei Alembic-Fail wegen SQLite‑Limitierung → Migration auf No-Op setzen
-- DateTime-Fehler = String ↔ datetime-Konflikt → immer `datetime` verwenden
-- Bei CI-Fehlern → Discord‑Webhook über `curl` testen
-- `verify_system.py --slug <slug>` schnellster Indikator, ob alles funzt
-
-Let’s keep this dev flow smooth and reliable! 🚀
+## 🔮 Roadmap
+- Embeddings einbinden (lokal: `sentence-transformers`, remote: OpenAI)  
+- Bot Q&A für Knowledge Discovery  
+- Multi-Tenant Runner (`tenants.json`)  
+- Dashboard (Streamlit/FastAPI) für KPIs & Health  

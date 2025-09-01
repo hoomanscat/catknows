@@ -1,118 +1,99 @@
-# SkoolHUD & Community Insights — Starter Kit
+# SkoolHUD – Community Intelligence Hub
 
-Dieses Repository enthält die Basis für automatisierte Community‑Analysen (SkoolHUD), inkl. Multi‑Tenant‑Support, Daily‑Reporting und Discord‑Integrationen.
-
----
-
-##  Übersicht
-
-- **Datenfluss**: Skool-Daten abrufen → normalisieren → in SQLite speichern.
-- **Agents** generieren tägliche Reports: KPIs, Health Scores, Leaderboard‑Deltas, Member‑Snapshots.
-- **Alembic** verwaltet das Datenbankschema.
-- **CI** (GitHub Actions) führt tägliche Runs durch, generiert Reports, lädt Artefakte hoch und verschickt Discord‑Benachrichtigungen.
-- **Multi‑Tenant**: Jede Community hat eigene Tenant‑Slug, Daten & Reports.
+SkoolHUD ist ein Data-Pipeline- und Dashboard-System für Skool-Communities.  
+Es automatisiert das Sammeln, Normalisieren, Analysieren und Reporten von Community-Daten – mit Discord-Integration und Vector-Search.
 
 ---
 
-##  Installation & Setup (Dev)
+## Features
 
-```bash
-git clone https://github.com/hoomanscat/catknows.git
-cd catknows
+- **Fetcher & Normalizer**  
+  - Holt Member- und Leaderboard-Daten über Skool-Web (Next.js JSON)  
+  - Normalisiert in SQLite-DB (`skool.db`)  
+  - Multi-Tenant-ready (`tenants.json`)
 
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-pip install --upgrade pip
-pip install -r requirements.txt
+- **Snapshots & Reports**  
+  - `MemberDailySnapshot` (Autoincrement-Fix, SQLite kompatibel)  
+  - Leaderboard-Snapshots (7d, 30d, all)  
+  - Health-/KPI-/Movers-/NewJoiner-Reports → Discord-Webhook
+
+- **Agents (AI/Analysis)**  
+  - Health Score, KPI-Report, Movers, New Joiners  
+  - Alle Agenten in `skoolhud/ai/agents`  
+  - Orchestriert durch `run_all_agents.py`
+
+- **Discord Integration**  
+  - GitHub Actions → Postet Status in Kanäle (Status, Alerts, KPIs, Movers, Health, NewJoiners)  
+  - Optional: Discord Bot (`skoolhud/discord/bot.py`) für Queries wie `!who-knows AI?`
+
+- **Vector Store (ChromaDB)**  
+  - Persistenter Storage (`./vector_store`)  
+  - `skool_members` Collection  
+  - Automatischer Ingest beim Daily Run → Mitgliederprofile als Embeddings
+
+- **Automation**  
+  - `daily_runner.py` orchestriert alles:  
+    1. `update_all.py` (fetch/normalize)  
+    2. `snapshot-members-daily`  
+    3. `run_all_agents.py`  
+    4. Vector-Ingest
+
+---
+
+## Setup
+
+### 1. Environment
+`.env` im Projekt-Root:
+
+```env
+# Skool Cookie (nur lokal)
+SKOOL_COOKIE=...
+
+# Discord Webhooks
+DISCORD_WEBHOOK_STATUS=...
+DISCORD_WEBHOOK_ALERTS=...
+DISCORD_WEBHOOK_KPIS=...
+DISCORD_WEBHOOK_MOVERS=...
+DISCORD_WEBHOOK_HEALTH=...
+DISCORD_WEBHOOK_NEWJOINERS=...
+
+# Discord Bot Token (für Bot-Integration)
+DISCORD_BOT_TOKEN=...
 ```
 
----
-
-##  Datenbank initialisieren & Migration
-
+### 2. Lokale DB
 ```bash
-python -m skoolhud.cli init-db
 alembic upgrade head
 ```
 
-Falls `skool.db` oder Schema sich ändert, migriere neu:
-
+### 3. Run Local
 ```bash
-alembic revision --autogenerate -m "desc"
-alembic upgrade head
+python daily_runner.py
 ```
+
+### 4. Run GitHub Action
+- `.github/workflows/daily.yml` (automatisch täglich)
+- `.github/workflows/notify_test.yml` (manuell)
 
 ---
 
-##  Tenant registrieren
+## Troubleshooting
 
-```bash
-python -m skoolhud.cli add-tenant   --slug hoomans   --group your-group-path   --cookie "HIER_DEN_COOKIE_EINFÜGEN"
-```
-
-Zum Testen:
-
-```bash
-python -m skoolhud.cli test-tenant --slug hoomans
-```
+- **SQLite `ALTER`**: Alembic erzeugt No-Op-Migration (safe).  
+- **Windows Encoding**: `✅` → ersetzt durch `OK` falls Probleme.  
+- **Discord Bot Token**: Token ≠ Webhook. Token muss 3 Teile (`xxx.yyy.zzz`) haben.  
+- **Vector Store**: `chromadb` installieren (`pip install chromadb>=0.5.5`).
 
 ---
 
-##  Agenten lokal ausführen
+## Roadmap
 
-```bash
-python skoolhud/ai/agents/run_all_agents.py --slug hoomans
-```
-
-Reports landen in: `exports/reports/hoomans/`
-
-Datenbank‑Snapshot via:
-
-```bash
-python verify_system.py --slug hoomans
-```
+- ✅ Datenpipeline (fetch/normalize/snapshot/agents)  
+- ✅ Discord-Notify GitHub Actions  
+- ✅ Vector Store init + ingest  
+- 🚧 Embeddings (sentence-transformers oder OpenAI)  
+- 🚧 Discord Bot Q&A (`!who-knows <topic>`)  
+- 🚧 Multi-Tenant Runner (alle Communities)  
+- 🚧 Dashboard (Streamlit/FastAPI)
 
 ---
-
-##  GitHub Actions & Discord‑Integration
-
-- Täglicher Run: CI agiert über `daily.yml`
-- Discord-Embeds für Status, KPI, Health, Movers & New Joiners
-- Artefakte im CI-Tab verfügbar (Reports pro Tenant)
-
-Channel-Konfiguration:
-- DISCORD_WEBHOOK_STATUS
-- DISCORD_WEBHOOK_KPI
-- DISCORD_WEBHOOK_MOVERS
-- DISCORD_WEBHOOK_HEALTH
-- DISCORD_WEBHOOK_NEWJOINERS
-
----
-
-##  Projektstruktur
-
-```
-catknows/
-├── alembic/
-├── exports/
-│   └── reports/{slug}/
-├── skoolhud/
-│   ├── ai/agents/
-│   └── models.py
-├── daily_runner.py
-├── verify_system.py
-├── README.md
-├── DEV_CHECKLIST.md
-└── ...
-```
-
----
-
-##  Unterstützung & Debugging
-
-- Fehlermeldungen einfach hier reinkopieren → ich sag dir Schritt-für-Schritt, was zu tun ist.
-- Clean-Up:
-  - `.gitignore` hält `skool.db`, `exports/`, `data_lake/` aus dem Repo
-  - alembic-Versionen im Repo für Schema-Konsistenz
-
-**Let’s get that data flowing!**

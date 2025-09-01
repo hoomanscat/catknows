@@ -1,9 +1,18 @@
+
+"""
+Modul zum Abrufen von Daten aus Skool-Communities.
+Enthält die Klasse SkoolFetcher, die HTTP-Anfragen stellt und Cookies aus DB oder Datei lädt.
+"""
 import os, json, time, re
 import requests
 from bs4 import BeautifulSoup
 from .config import settings
 
 class SkoolFetcher:
+    """
+    Hilfsklasse zum Abrufen von Daten aus Skool-Gruppen.
+    Verwaltet Session, Cookie und stellt Methoden zum Laden von Daten bereit.
+    """
     def __init__(self, base_url: str, group_path: str, cookie_header: str, tenant_slug: str):
         self.base_url = base_url.rstrip("/")
         self.group_path = group_path.strip("/")
@@ -18,6 +27,9 @@ class SkoolFetcher:
 
     # --- NEU: Cookie-Loader (DB -> Datei) ---------------------------------
     def _cookie_from_db_or_file(self, cookie_header: str | None) -> str:
+        """
+        Lädt den Cookie entweder direkt aus dem Parameter oder aus der Datei.
+        """
         try:
             if cookie_header and cookie_header.strip() and "auth_token=" in cookie_header:
                 return cookie_header.strip()

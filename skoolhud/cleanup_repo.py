@@ -1,15 +1,26 @@
+
 # skoolhud/cleanup_repo.py
+"""
+Hilfsmodul zum Aufräumen und Initialisieren von Export- und Datalake-Verzeichnissen für verschiedene Tenants.
+Lädt Tenant-Slugs aus tenants.json oder erkennt sie anhand vorhandener Ordnerstrukturen.
+"""
 from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
 
+# Projektroot und relevante Verzeichnisse
 ROOT = Path(__file__).resolve().parents[1]  # Projektroot
 EXPORTS = ROOT / "exports" / "reports"
 DATALAKE = ROOT / "data_lake"
 TENANTS_FILE = ROOT / "tenants.json"
 
 def load_tenants() -> list[str]:
+    """
+    Lädt alle Tenant-Slugs aus tenants.json.
+    Falls die Datei fehlt oder ungültig ist, werden Slugs anhand existierender Ordnerstrukturen erkannt.
+    Gibt eine Liste von Slugs zurück.
+    """
     if TENANTS_FILE.exists():
         try:
             data = json.loads(TENANTS_FILE.read_text(encoding="utf-8"))
@@ -36,6 +47,9 @@ def load_tenants() -> list[str]:
     return sorted(slugs) or ["hoomans"]
 
 def ensure_dirs(slugs: list[str]) -> None:
+    """
+    Stellt sicher, dass für alle übergebenen Slugs die Export-Verzeichnisse existieren.
+    """
     for slug in slugs:
         (EXPORTS / slug).mkdir(parents=True, exist_ok=True)
         (DATALAKE / slug / "members").mkdir(parents=True, exist_ok=True)

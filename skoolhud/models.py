@@ -1,4 +1,10 @@
+
 # skoolhud/models.py
+"""
+Definiert die SQLAlchemy-Datenbankmodelle für Tenants und Members.
+Tenant: Repräsentiert eine Community/Gruppe mit Slug, Gruppenpfad und Cookie.
+Member: Repräsentiert ein Mitglied einer Community.
+"""
 from __future__ import annotations
 
 from sqlalchemy import (
@@ -16,11 +22,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
 
-
 # -----------------------------
 # Tenant (SQLAlchemy 2.0 typing)
 # -----------------------------
 class Tenant(Base):
+    """
+    Datenbankmodell für einen Tenant (Gruppe/Community).
+    """
     __tablename__ = "tenant"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -31,11 +39,13 @@ class Tenant(Base):
     def __repr__(self) -> str:
         return f"Tenant(slug={self.slug!r}, group_path={self.group_path!r})"
 
-
 # ---------------------------------
 # Member (klassischer Column-Stil)
 # ---------------------------------
 class Member(Base):
+    """
+    Datenbankmodell für ein Mitglied einer Community.
+    """
     __tablename__ = "members"
 
     id = Column(Integer, primary_key=True)

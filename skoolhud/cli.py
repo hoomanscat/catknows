@@ -481,3 +481,28 @@ def snapshot_members_daily(slug: str, day_str: str = None):
         typer.echo(f"member_daily_snapshot: inserted={inserted} updated={updated} day={the_day}")
     finally:
         s.close()
+# --- NEU: Vector CLI Commands (am Ende der Datei oder bei den anderen Typer-Kommandos) ---
+import typer
+from skoolhud.vector.ingest import ingest_members_to_vector
+from skoolhud.vector.db import get_client, get_or_create_collection, similarity_search
+
+app = typer.Typer(add_completion=False) if 'app' not in globals() else app
+
+@app.command("vector-ingest")
+def vector_ingest(slug: str = typer.Argument(...), collection: str = typer.Option("skool_members", help="Chroma Collection Name")):
+    """Ingest aller Members eines Tenants in den Vector Store (mit Embeddings)."""
+    ingest_members_to_vector(slug, collection)
+
+@app.command("vector-search")
+def vector_search(query: str = typer.Argument(...), slug: str = typer.Option(None, help="Optional: Tenant-Filter"), top_k: int = typer.Option(5, help="Anzahl Treffer")):
+    """Semantische Suche im Vector Store."""
+    client = get_client()
+    col = get_or_create_collection(client, "skool_members")
+    where = {"tenant": slug} if slug else None
+    res = similarity_search(col, query, n_results=top_k, where=where)
+    ids = res.get("ids", [[]])[0]
+    docs = res.get("documents", [[]])[0]
+    metas = res.get("metadatas", [[]])[0]
+    for i, (id_, doc, meta) in enumerate(zip(ids, docs, metas), start=1):
+        print(f"{i}. {meta.get('name','')} — user_id={meta.get('user_id','')} — points_all={meta.get('points_all',0)}")
+        print(f"   {doc[:180].replace('\n',' ')}{'...' if len(doc)>180 else ''}")

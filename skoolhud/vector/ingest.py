@@ -1,102 +1,65 @@
 # skoolhud/vector/ingest.py
 from __future__ import annotations
-from pathlib import Path
 from typing import List, Dict
-import uuid
-import csv
-import os
+from sqlalchemy.orm import Session
+from skoolhud.db import SessionLocal
+from skoolhud.models import Member
+from skoolhud.vector.db import get_client, get_or_create_collection, upsert_documents
+from skoolhud.vector.embed import get_embedder
 
-from sentence_transformers import SentenceTransformer
-from skoolhud.vector.db import get_collection
-
-REPORTS_DIR = Path("exports/reports")
-TENANT = os.getenv("TENANT", "hoomans")
-MODEL_NAME = os.getenv("EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-
-def _read_text_file(p: Path) -> str:
-    try:
-        return p.read_text(encoding="utf-8")
-    except Exception:
-        return p.read_text(errors="ignore")
-
-def _read_csv_top(p: Path, limit: int = 200) -> str:
-    rows = []
-    with p.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.reader(f)
-        headers = next(reader, None)
-        if headers:
-            rows.append(" | ".join(headers))
-        for i, r in enumerate(reader):
-            rows.append(" | ".join(str(x) for x in r))
-            if i + 1 >= limit:
-                break
-    return "\n".join(rows)
-
-def _collect_documents() -> List[Dict]:
-    docs: List[Dict] = []
-    # Tenantisierte Pfade bevorzugen, sonst Fallback
-    base_candidates = [REPORTS_DIR / TENANT, REPORTS_DIR]
-    patterns = [
-        "kpi_*.md",
-        "leaderboard_movers.md",
-        "leaderboard_delta_true.md",
-        "member_health_summary.md",
-        "member_health.csv",
-        "members_snapshot_*.csv",
+def _member_to_doc(m: Member) -> Dict[str, str]:
+    # Textfeld für Semantik
+    parts = [
+        f"Name: {m.name or ''}",
+        f"Handle: {m.handle or ''}",
+        f"Location: {m.location or ''}",
+        f"Bio: {m.bio or ''}",
+        f"Links: {', '.join([_ for _ in [m.link_website, m.link_linkedin, m.link_instagram, m.link_youtube, m.link_facebook] if _])}"
     ]
-    for base in base_candidates:
-        if not base.exists():
-            continue
-        for pat in patterns:
-            for p in sorted(base.glob(pat)):
-                if p.suffix.lower() == ".md":
-                    text = _read_text_file(p)
-                    doc = {
-                        "id": f"{TENANT}:{p.name}:{uuid.uuid4().hex[:8]}",
-                        "text": text,
-                        "meta": {
-                            "tenant": TENANT,
-                            "type": "markdown",
-                            "path": str(p),
-                            "name": p.name,
-                        },
-                    }
-                    docs.append(doc)
-                elif p.suffix.lower() == ".csv":
-                    text = _read_csv_top(p, limit=200)  # nicht zu groß
-                    doc = {
-                        "id": f"{TENANT}:{p.name}:{uuid.uuid4().hex[:8]}",
-                        "text": text,
-                        "meta": {
-                            "tenant": TENANT,
-                            "type": "csv",
-                            "path": str(p),
-                            "name": p.name,
-                        },
-                    }
-                    docs.append(doc)
-    return docs
+    return {
+        "text": "\n".join(parts).strip()
+    }
 
-def ingest():
-    docs = _collect_documents()
-    if not docs:
-        print("Keine Dokumente gefunden unter exports/reports (tenantisiert oder global).")
+def ingest_members_to_vector(tenant: str, collection_name: str = "skool_members", batch_size: int = 512):
+    s: Session = SessionLocal()
+    try:
+        rows: List[Member] = s.query(Member).filter(Member.tenant == tenant).all()
+    finally:
+        s.close()
+
+    if not rows:
+        print(f"[vector] Keine Members für tenant={tenant}")
         return
-    print(f"Ingest {len(docs)} docs für tenant={TENANT}")
 
-    model = SentenceTransformer(MODEL_NAME)
-    collection = get_collection("skoolhud")
+    client = get_client()
+    col = get_or_create_collection(client, collection_name)
+    embed = get_embedder()
 
-    ids = [d["id"] for d in docs]
-    texts = [d["text"] for d in docs]
-    metas = [d["meta"] for d in docs]
+    ids, docs, metas = [], [], []
+    for m in rows:
+        if not m.user_id:
+            continue
+        doc = _member_to_doc(m)
+        ids.append(f"{tenant}:{m.user_id}")
+        docs.append(doc["text"])
+        metas.append({
+            "tenant": tenant,
+            "user_id": m.user_id,
+            "name": m.name or "",
+            "level": m.level_current or 0,
+            "points_all": m.points_all or 0,
+        })
 
-    # Embeddings berechnen
-    embeddings = model.encode(texts, normalize_embeddings=True).tolist()
+        # Batch schreiben
+        if len(ids) >= batch_size:
+            embs = embed(docs)
+            upsert_documents(col, ids, docs, metas, embeddings=embs)
+            print(f"[vector] upsert batch: {len(ids)}")
+            ids, docs, metas = [], [], []
 
-    # Upsert
-    collection.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metas)
-    print(f"Upserted {len(ids)} docs in collection 'skoolhud'.")
+    if ids:
+        embs = embed(docs)
+        upsert_documents(col, ids, docs, metas, embeddings=embs)
+        print(f"[vector] upsert batch: {len(ids)}")
 
-if __name__ == "__main__":
-    ingest()
+    print(f"[vector] DONE tenant={tenant}, total={len(rows)} → collection={collection_name}")
