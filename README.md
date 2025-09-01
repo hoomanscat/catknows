@@ -1,102 +1,120 @@
-# Skool HUD & Knowledge Base — Starter
+# SkoolHUD
 
-**Einfacher Start für Windows (auch für Anfänger geeignet).**
-
-## Was ist hier drin?
-- **Fetcher** (holt Skool-JSON über die offiziellen Next.js-Routen – ToS-konform)
-- **Raw-Snapshots** (legt die Original-JSON-Dateien ab)
-- **Erste Normalisierung** (schreibt Grunddaten in SQLite)
-- **CLI** (Befehle: `init-db`, `add-tenant`, `test-tenant`, `fetch-members`)
-
-> Hinweis: Diese Version konzentriert sich auf **Members**. Leaderboard & weitere Quellen kommen als nächster Schritt.
+Ein CLI-Tool für **Mitglieder- und Leaderboard-Daten von Skool Communities**.  
+Es sammelt Daten täglich, normalisiert sie in eine SQL-Datenbank und erstellt Reports & Zeitreihen.
 
 ---
 
-## 0) Voraussetzungen (einmalig)
-1. **Python 3.11** installieren (Windows): https://www.python.org/downloads/
-   - Während der Installation **"Add Python to PATH"** anhaken.
-2. (Optional) **Git** installieren: https://git-scm.com/downloads
-
-> Wenn du Python schon hast: Öffne PowerShell und tippe `python --version`. Es sollte `3.11.x` anzeigen.
+## 🚀 Features
+- Mitglieder-Import mit Pagination
+- Leaderboard (All-Time, 30 Tage, 7 Tage)
+- Normalisierung + Zeitreihen (`LeaderboardSnapshot`, `MemberDailySnapshot`)
+- Daily Runner mit Reports:
+  - KPI Report
+  - Health Score (Advocates / At Risk)
+  - Leaderboard Movers
+  - True Delta Leaderboards (echte Historie)
+- Data Lake Export (`data_lake/members/dt=YYYY-MM-DD/members.csv`)
+- Automatisches Reporting (`exports/reports/*.md`)
 
 ---
 
-## 1) Entpacken & Ordner öffnen
-- Entpacke die ZIP (z. B. in `C:\skool-hud-starter`).
-- Öffne **PowerShell** in diesem Ordner (Shift + Rechtsklick → *PowerShell hier öffnen*).
-
----
-
-## 2) Virtuelle Umgebung & Abhängigkeiten
+## 📦 Installation
 ```powershell
+git clone https://github.com/hoomanscat/catknows.git
+cd catknows
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install --upgrade pip
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ---
 
-## 3) Datenbank anlegen
+## ⚙️ Setup
+1. **DB anlegen**
 ```powershell
-python -m skoolhud.cli init-db
+skoolhud init-db
 ```
 
----
+2. **Cookie speichern**  
+   `cookie.txt` ins Projektroot legen (vollständiger Cookie-Header).
 
-## 4) Tenant anlegen (Cookie eintragen)
-### 4.1 Cookie aus dem Browser holen
-- Öffne `https://www.skool.com/<DEIN-GROUP-PFAD>/-/members` im **Chrome**-Browser (eingeloggt).
-- `F12` → Tab **Network** → Seite neu laden (F5).
-- Links einen Request anklicken (z. B. auf die Members-Seite).
-- Rechts im Reiter **Headers** → **Request Headers** → **cookie**.
-- **Den kompletten Cookie-String kopieren.** (Nichts verändern.)
-
-### 4.2 Tenant in der DB anlegen
+3. **Tenant einrichten**
 ```powershell
-python -m skoolhud.cli add-tenant --slug hoomans --group your-group-path --cookie "HIER_DEN_GESAMTEN_COOKIE_STRING_EINFÜGEN"
+$cookie = Get-Content .\cookie.txt -Raw
+skoolhud add-tenant --slug hoomans --group hoomans --cookie $cookie
+skoolhud test-tenant --slug hoomans
 ```
-- `--slug`: frei wählbarer Kurzname (z. B. `hoomans`)
-- `--group`: der Pfad im Skool-URL (z. B. `the-alley` oder dein eigener Group-Pfad)
-- `--cookie`: exakt wie kopiert
-
-**Sicherheit:** Gib deinen Cookie **niemandem**. Er bleibt lokal in deiner SQLite-DB. Du kannst ihn jederzeit austauschen.
 
 ---
 
-## 5) Cookie prüfen
+## 📊 Daily Run
 ```powershell
-python -m skoolhud.cli test-tenant --slug hoomans
+python daily_runner.py
 ```
-- Der Befehl lädt die Members-Seite, sucht die `BUILD_ID` und meldet Erfolg/Fehler.
+Ablauf:
+1. Mitglieder & Leaderboards ziehen  
+2. Leaderboards normalisieren  
+3. MemberDailySnapshot schreiben  
+4. Agents ausführen (Reports + Data Lake Export)  
+
+Ergebnisse:
+- **Reports**: `exports/reports/*.md`, `exports/reports/*.csv`
+- **Snapshots**: `data_lake/members/dt=YYYY-MM-DD/`
 
 ---
 
-## 6) Mitglieder holen (raw + normalisieren)
+## 🔎 Reports
+- `kpi_YYYY-MM-DD.md` → Mitgliederzahlen + Top-Performer
+- `member_health_summary.md` → Advocates vs. At Risk
+- `leaderboard_movers.md` → heuristische Movers
+- `leaderboard_delta_true.md` → echte Deltas zwischen Snapshots
+- `member_health.csv` → Health Scores pro User
+- `members.csv` im Data Lake → täglicher Export aller Member-Felder
+
+---
+
+## 🧪 Development
+Tests / Smoke:
 ```powershell
-python -m skoolhud.cli fetch-members --slug hoomans
+skoolhud --help
+python update_all.py
+python verify_system.py
 ```
-- Ablauf:
-  1. BUILD_ID entdecken (HTML)
-  2. 15s warten (Rate-Limit)
-  3. JSON-Route abrufen
-  4. Raw-JSON speichern (`exports/raw/`)
-  5. Grunddaten in SQLite upserten (`skool.db`)
 
-> Beim ersten Lauf kann es sein, dass die Normalisierung nur einen Teil der Felder füllt. Wir verbessern das nach Sichtung deiner echten JSON.
+CI läuft über GitHub Actions (`.github/workflows/ci.yml`).
 
 ---
 
-## 7) Daten ansehen
-- **SQLite DB**: Datei `skool.db` (z. B. mit *DB Browser for SQLite* öffnen: https://sqlitebrowser.org/)
-- **Rohdaten**: Ordner `exports/raw/`
+## 🛣️ Fahrplan (Next Steps)
+1. **Stabilisieren**
+   - Migrations-Skripte für DB (Alembic einführen)  
+   - Encoding fix in allen Reports (`encoding="utf-8"`)  
+
+2. **Analytics erweitern**
+   - Trend-Reports (7d/30d Health Trend pro Member)  
+   - Community Growth Rate (Neuzugänge vs. Abgänge)  
+   - Engagement Funnel (aktive % → Post/Kommentar-Rate, wenn Daten vorliegen)
+
+3. **Export & Dashboard**
+   - CSV/Parquet-Exports automatisieren  
+   - Mini-Dashboard (Streamlit oder statisches HTML mit Charts aus Reports)  
+
+4. **Multi-Tenant Support**
+   - `tenants.json` einlesen  
+   - Runner für alle Communities laufen lassen  
+
+5. **Deployment**
+   - Dockerfile hinzufügen  
+   - Optional Cronjob / GitHub Action für Daily Run  
 
 ---
 
-## Nächste Schritte
-- Leaderboard-Import ergänzen
-- 6h-Scheduler hinzufügen
-- Vektorstore + Chat
-- HUD-Frontend
-
-Bei Fragen einfach die Konsolenausgabe hier reinkopieren – ich sage dir dann genau, was zu tun ist.
+## ✅ Quick Verify
+```powershell
+python verify_system.py
+```
+Ausgabe zeigt:
+- `Members: N (with points_all: X) | LeaderboardSnapshots: Y`
+- `MemberDailySnapshot: today > 0`
