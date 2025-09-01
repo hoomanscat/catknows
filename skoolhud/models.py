@@ -75,14 +75,15 @@ class LeaderboardSnapshot(Base):
     source_file = Column(String, nullable=True)
     build_id = Column(String, nullable=True)
 
-# ganz oben sind bei dir bereits ähnliche Imports vorhanden – ergänze falls nötig:
-from sqlalchemy import Column, Integer, String, Date, DateTime, BigInteger, Index, UniqueConstraint
-# Base kommt bei dir bereits aus dem bestehenden Modell-Setup
+# PATCH: skoolhud/models.py  (MemberDailySnapshot ersetzen)
+from sqlalchemy import Column, Integer, String, Date, DateTime, Index, UniqueConstraint
 
 class MemberDailySnapshot(Base):
     __tablename__ = "member_daily_snapshot"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    # WICHTIG für SQLite: INTEGER primary_key + autoincrement
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
     tenant = Column(String(64), nullable=False)
     user_id = Column(String(64), nullable=False)
     day = Column(Date, nullable=False)
@@ -97,10 +98,11 @@ class MemberDailySnapshot(Base):
     rank_all = Column(Integer)
 
     last_active_at_utc = Column(DateTime)
-    captured_at = Column(DateTime, nullable=False)  # wann dieser Tagesstand geschrieben wurde
+    captured_at = Column(DateTime, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("tenant", "user_id", "day", name="uq_member_daily"),
         Index("ix_mds_tenant_day", "tenant", "day"),
         Index("ix_mds_tenant_user_day", "tenant", "user_id", "day"),
     )
+
