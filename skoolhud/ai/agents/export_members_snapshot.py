@@ -8,6 +8,31 @@ from skoolhud.models import Member
 # Data-Lake Ordner (außerhalb von exports/reports)
 BASE_DIR = Path("data_lake/members")
 
+def _to_datetime_utc(x):
+    if x is None:
+        return None
+    if isinstance(x, datetime):
+        return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
+    if isinstance(x, str):
+        s = x.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            return None
+    return None
+
+def _to_iso(x):
+    if x is None:
+        return ""
+    if isinstance(x, datetime):
+        return x.astimezone(timezone.utc).isoformat()
+    if isinstance(x, str):
+        return x
+    return str(x)
+
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -49,8 +74,8 @@ def main():
                 "rank_7d": m.rank_7d,
                 "rank_30d": m.rank_30d,
                 "rank_all": m.rank_all,
-                "joined_date": m.joined_date.isoformat() if getattr(m, "joined_date", None) else "",
-                "last_active_at_utc": m.last_active_at_utc.isoformat() if m.last_active_at_utc else "",
+                "joined_date": _to_iso(getattr(m, "joined_date", None)),
+                "last_active_at_utc": _to_iso(m.last_active_at_utc),
                 "captured_at_utc": now.isoformat(),
             })
     finally:
