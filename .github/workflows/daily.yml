@@ -1,4 +1,3 @@
-# REPLACE FILE: .github/workflows/daily.yml
 name: Daily
 
 on:
@@ -13,6 +12,7 @@ jobs:
       contents: read
     env:
       SKOOL_COOKIE: ${{ secrets.SKOOL_COOKIE }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
     steps:
       - name: Checkout
@@ -29,7 +29,7 @@ jobs:
           pip install -r requirements.txt
           pip install -e .
 
-      - name: Run daily (guarded if SKOOL_COOKIE is present)
+      - name: Run daily (guarded)
         run: |
           if [ -z "${SKOOL_COOKIE}" ]; then
             echo "SKOOL_COOKIE not set; skipping live run."
@@ -41,3 +41,27 @@ jobs:
           skoolhud test-tenant --slug hoomans
           python update_all.py
           python skoolhud/ai/agents/run_all_agents.py --slug hoomans
+
+      - name: Verify & capture output
+        # läuft immer, auch wenn oben geskippt wurde (dann zeigt verify halt den Status an)
+        run: |
+          set -e
+          python verify_system.py | tee verify.txt
+
+      - name: Notify Discord (optional)
+        if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
+        run: |
+          # sendet verify-Systemausgabe an Discord
+          python - << 'PY'
+          import json, os, urllib.request, pathlib
+          url = os.environ.get("DISCORD_WEBHOOK_URL")
+          if not url:
+              print("DISCORD_WEBHOOK_URL not set; skip")
+              raise SystemExit(0)
+          text = pathlib.Path("verify.txt").read_text(encoding="utf-8")
+          # Discord erwartet JSON {"content": "..."}; wir schicken plain text
+          data = json.dumps({"content": text[:1900]}).encode("utf-8")  # 2000 char limit, safety cut
+          req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+          with urllib.request.urlopen(req) as r:
+              print("Discord status:", r.status)
+          PY
