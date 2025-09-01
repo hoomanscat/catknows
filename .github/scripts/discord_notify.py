@@ -19,19 +19,34 @@ def getenv(key: str) -> str:
     return v if isinstance(v, str) else ""
 
 def _send_discord(webhook_url: str, payload: Dict) -> None:
-    """POST payload to Discord webhook. No hard CI fail on error."""
+    """POST payload to Discord webhook. No hard CI fail on error; logs include masked URL head."""
     if not webhook_url:
         print("WARN: webhook_url empty -> skip")
         return
+
+    # Debug: Domain/Prefix check (mask Token)
+    head = webhook_url.split("?")[0]
+    print("DEBUG webhook head:", head[:60] + ("…" if len(head) > 60 else ""))
+
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(webhook_url, data=data, headers={"Content-Type": "application/json"})
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "SkoolHUD-GitHubActions/1.0 (+https://github.com/hoomanscat/catknows)"
+    }
+    req = urllib.request.Request(webhook_url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req) as r:
-            print("Discord status:", r.status)
+            # Discord antwortet bei Erfolg meist 204
+            print(f"Discord status: {r.status}")
     except urllib.error.HTTPError as e:
-        print(f"ERROR: HTTP {e.code} from Discord: {e.read().decode('utf-8', 'ignore')}")
+        try:
+            body = e.read().decode("utf-8", "ignore")
+        except Exception:
+            body = "<no body>"
+        print(f"ERROR: HTTP {e.code} from Discord: {body}")
     except Exception as e:
         print(f"ERROR: sending to Discord failed: {e}")
+
 
 def _embed(title: str, description: str, color_hex: str = "5865F2",
            fields: Optional[List[Dict]] = None, url: str = "") -> Dict:
