@@ -5,9 +5,11 @@ from pathlib import Path
 AGENTS = [
     "kpi_report.py",
     "health_score.py",
-    "leaderboard_delta.py",
+    "leaderboard_delta.py",       # Heuristik (kann bleiben)
     "export_members_snapshot.py",
+    "leaderboard_delta_true.py",  # <-- neu: echte Historie
 ]
+
 
 def run_agent(script: str):
     path = Path(__file__).parent / script
