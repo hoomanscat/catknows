@@ -8,7 +8,7 @@ def run(cmd):
 
 def main():
     run("python update_all.py")  # 1) Daten holen/normalisieren
-    run("python -m skoolhud ai snapshot-members-daily --slug hoomans")  # 2) Tages-Snapshot (über CLI)
+    run("skoolhud snapshot-members-daily --slug hoomans")  # 2) Tages-Snapshot (über CLI)
     run("python skoolhud/ai/agents/run_all_agents.py")  # 3) KPI/Health/Movers + Data Lake
     print("\n✅ Daily run complete.\n")
 

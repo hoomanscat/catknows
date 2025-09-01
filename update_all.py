@@ -33,5 +33,7 @@ def main():
 
     print("\n==== SkoolHUD Update fertig ====")
 
+subprocess.run(["skoolhud", "snapshot-members-daily", "--slug", "hoomans"], check=True)
+
 if __name__ == "__main__":
     main()
