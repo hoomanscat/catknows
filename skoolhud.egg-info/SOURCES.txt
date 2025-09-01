@@ -3,11 +3,13 @@ pyproject.toml
 setup.cfg
 setup.py
 skoolhud/__init__.py
+skoolhud/__main__.py
 skoolhud/cli.py
 skoolhud/config.py
 skoolhud/db.py
 skoolhud/fetcher.py
 skoolhud/models.py
+skoolhud/multi_tenant_runner.py
 skoolhud/normalizer.py
 skoolhud/utils.py
 skoolhud.egg-info/PKG-INFO

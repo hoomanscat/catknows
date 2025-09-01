@@ -392,17 +392,30 @@ def fetch_leaderboard_all(slug: str, window: str = typer.Option("all", help="all
 
 import typer
 from datetime import datetime, timezone, date
-from skoolhud.db import SessionLocal
-from skoolhud.models import Member, MemberDailySnapshot
 
-# falls bei dir schon ein Typer-App-Objekt existiert (z.B. app = typer.Typer()),
-# dann diesen Decorator auf genau dieses app anwenden:
+def _to_dt_utc(x):
+    if not x:
+        return None
+    if isinstance(x, datetime):
+        return x.astimezone(timezone.utc) if x.tzinfo else x.replace(tzinfo=timezone.utc)
+    s = str(x).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
 @app.command("snapshot-members-daily")
 def snapshot_members_daily(slug: str, day_str: str = None):
     """
     Schreibt für alle Member einen Tages-Snapshot in member_daily_snapshot.
     day_str: YYYY-MM-DD (optional), Default = heute (UTC).
     """
+    from skoolhud.db import SessionLocal
+    from skoolhud.models import Member, MemberDailySnapshot
+
     s = SessionLocal()
     try:
         if day_str:
@@ -434,7 +447,7 @@ def snapshot_members_daily(slug: str, day_str: str = None):
                 rank_7d=m.rank_7d,
                 rank_30d=m.rank_30d,
                 rank_all=m.rank_all,
-                last_active_at_utc=m.last_active_at_utc,
+                last_active_at_utc=_to_dt_utc(m.last_active_at_utc),
                 captured_at=now,
             )
 
@@ -450,4 +463,3 @@ def snapshot_members_daily(slug: str, day_str: str = None):
         typer.echo(f"member_daily_snapshot: inserted={inserted} updated={updated} day={the_day}")
     finally:
         s.close()
-
