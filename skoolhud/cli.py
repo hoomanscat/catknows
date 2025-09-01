@@ -390,6 +390,65 @@ def fetch_leaderboard_all(slug: str, window: str = typer.Option("all", help="all
 
     typer.echo(f"FERTIG [{window}]. Summe inserted={total_ins}, updated={total_upd}, scanned={total_scanned}")
 
+@app.command("snapshot-members-daily")
+def snapshot_members_daily(slug: str, day_str: str = None):
+    """
+    Schreibt für alle Member eines Tenants einen Tages-Snapshot in member_daily_snapshot.
+    day_str: YYYY-MM-DD (optional). Default = heute (UTC).
+    """
+    s = SessionLocal()
+    try:
+        # Tag bestimmen
+        if day_str:
+            yyyy, mm, dd = map(int, day_str.split("-"))
+            day = date(yyyy, mm, dd)
+        else:
+            day = datetime.now(timezone.utc).date()
+
+        # Tenant-Filter (so wie in euren anderen Commands)
+        # Annahme: Member.tenant existiert; falls nicht, kommt der Tenant kontext anders rein.
+        members = s.query(Member).all()
+
+        now = datetime.now(timezone.utc)
+        inserted = 0
+        updated = 0
+
+        for m in members:
+            # Upsert: erst versuchen zu holen
+            row = (s.query(MemberDailySnapshot)
+                   .filter(MemberDailySnapshot.tenant == getattr(m, "tenant", slug))
+                   .filter(MemberDailySnapshot.user_id == m.user_id)
+                   .filter(MemberDailySnapshot.day == day)
+                   .one_or_none())
+
+            values = dict(
+                tenant=getattr(m, "tenant", slug),
+                user_id=m.user_id,
+                day=day,
+                level_current=m.level_current,
+                points_7d=m.points_7d,
+                points_30d=m.points_30d,
+                points_all=m.points_all,
+                rank_7d=m.rank_7d,
+                rank_30d=m.rank_30d,
+                rank_all=m.rank_all,
+                last_active_at_utc=m.last_active_at_utc,
+                captured_at=now,
+            )
+
+            if row is None:
+                row = MemberDailySnapshot(**values)
+                s.add(row)
+                inserted += 1
+            else:
+                for k, v in values.items():
+                    setattr(row, k, v)
+                updated += 1
+
+        s.commit()
+        typer.echo(f"member_daily_snapshot: inserted={inserted} updated={updated} day={day}")
+    finally:
+        s.close()
 
 if __name__ == "__main__":
     app()
