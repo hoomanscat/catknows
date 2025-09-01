@@ -13,6 +13,7 @@ jobs:
     env:
       SKOOL_COOKIE: ${{ secrets.SKOOL_COOKIE }}
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TENANT_SLUG: hoomans
 
     steps:
       - name: Checkout
@@ -37,31 +38,104 @@ jobs:
           fi
           echo "$SKOOL_COOKIE" > cookie.txt
           skoolhud init-db
-          skoolhud add-tenant --slug hoomans --group hoomans --cookie "$(cat cookie.txt)"
-          skoolhud test-tenant --slug hoomans
+          skoolhud add-tenant --slug "${TENANT_SLUG}" --group "${TENANT_SLUG}" --cookie "$(cat cookie.txt)"
+          skoolhud test-tenant --slug "${TENANT_SLUG}"
           python update_all.py
-          python skoolhud/ai/agents/run_all_agents.py --slug hoomans
+          python skoolhud/ai/agents/run_all_agents.py --slug "${TENANT_SLUG}"
 
       - name: Verify & capture output
-        # läuft immer, auch wenn oben geskippt wurde (dann zeigt verify halt den Status an)
+        shell: bash
         run: |
           set -e
           python verify_system.py | tee verify.txt
+          echo "Workspace:"
+          ls -la
 
-      - name: Notify Discord (optional)
+      # OPTIONAL: Reports als Artifact hochladen (schön für Download im Actions-Tab)
+      - name: Upload reports artifact (optional)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-${{ env.TENANT_SLUG }}
+          path: |
+            exports/reports/${{ env.TENANT_SLUG }}/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Notify Discord (pretty embed)
         if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
+        shell: python
+        env:
+          WEBHOOK: ${{ env.DISCORD_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # sendet verify-Systemausgabe an Discord
-          python - << 'PY'
-          import json, os, urllib.request, pathlib
-          url = os.environ.get("DISCORD_WEBHOOK_URL")
-          if not url:
-              print("DISCORD_WEBHOOK_URL not set; skip")
-              raise SystemExit(0)
-          text = pathlib.Path("verify.txt").read_text(encoding="utf-8")
-          # Discord erwartet JSON {"content": "..."}; wir schicken plain text
-          data = json.dumps({"content": text[:1900]}).encode("utf-8")  # 2000 char limit, safety cut
-          req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+          import os, json, re, datetime, urllib.request
+          webhook = os.environ.get("WEBHOOK")
+          if not webhook:
+              raise SystemExit("No webhook set")
+
+          # Read verify output
+          try:
+              with open("verify.txt", "r", encoding="utf-8") as f:
+                  raw = f.read()
+          except FileNotFoundError:
+              raw = "verify_system output missing."
+
+          # Parse quick metrics
+          members = re.search(r"Members:\s*(\d+)", raw)
+          members_with_pts = re.search(r"with points_all:\s*(\d+)", raw)
+          lbs = re.search(r"LeaderboardSnapshots:\s*(\d+)", raw)
+          day_today = re.search(r"MemberDailySnapshot:\s*today\s*=\s*(\d+)", raw)
+          day_total = re.search(r"MemberDailySnapshot:.*total\s*=\s*(\d+)", raw)
+
+          members = int(members.group(1)) if members else None
+          members_with_pts = int(members_with_pts.group(1)) if members_with_pts else None
+          lbs = int(lbs.group(1)) if lbs else None
+          today = int(day_today.group(1)) if day_today else 0
+          total = int(day_total.group(1)) if day_total else None
+
+          status_ok = today > 0
+          color = 0x2ecc71 if status_ok else 0xe74c3c  # green / red
+          emoji = "✅" if status_ok else "❌"
+
+          slug = os.environ.get("TENANT_SLUG", "tenant")
+          run_url = os.environ.get("RUN_URL", "")
+
+          # Trim verify text for discord (2000 chars limit)
+          raw_trim = raw.strip()
+          if len(raw_trim) > 1900:
+              raw_trim = raw_trim[:1900] + "\n… (truncated)"
+
+          # Build fancy embed
+          now_iso = datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+          fields = []
+          if members is not None:
+              fields.append({"name": "Members", "value": f"{members} (points_all: {members_with_pts or 0})", "inline": True})
+          if lbs is not None:
+              fields.append({"name": "LB Snapshots", "value": str(lbs), "inline": True})
+          fields.append({"name": "Daily Snapshots (today)", "value": str(today), "inline": True})
+          if total is not None:
+              fields.append({"name": "Daily Snapshots (total)", "value": str(total), "inline": True})
+
+          embed = {
+              "title": f"{emoji} SkoolHUD Daily — {slug}",
+              "url": run_url,
+              "description": f"```text\n{raw_trim}\n```",
+              "color": color,
+              "fields": fields,
+              "timestamp": now_iso,
+              "footer": {"text": "SkoolHUD • GitHub Actions"}
+          }
+
+          payload = {
+              "username": "SkoolHUD Bot",
+              "embeds": [embed]
+          }
+
+          req = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json"}
+          )
           with urllib.request.urlopen(req) as r:
               print("Discord status:", r.status)
-          PY
