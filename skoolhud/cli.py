@@ -390,41 +390,43 @@ def fetch_leaderboard_all(slug: str, window: str = typer.Option("all", help="all
 
     typer.echo(f"FERTIG [{window}]. Summe inserted={total_ins}, updated={total_upd}, scanned={total_scanned}")
 
+import typer
+from datetime import datetime, timezone, date
+from skoolhud.db import SessionLocal
+from skoolhud.models import Member, MemberDailySnapshot
+
+# falls bei dir schon ein Typer-App-Objekt existiert (z.B. app = typer.Typer()),
+# dann diesen Decorator auf genau dieses app anwenden:
 @app.command("snapshot-members-daily")
 def snapshot_members_daily(slug: str, day_str: str = None):
     """
-    Schreibt für alle Member eines Tenants einen Tages-Snapshot in member_daily_snapshot.
-    day_str: YYYY-MM-DD (optional). Default = heute (UTC).
+    Schreibt für alle Member einen Tages-Snapshot in member_daily_snapshot.
+    day_str: YYYY-MM-DD (optional), Default = heute (UTC).
     """
     s = SessionLocal()
     try:
-        # Tag bestimmen
         if day_str:
-            yyyy, mm, dd = map(int, day_str.split("-"))
-            day = date(yyyy, mm, dd)
+            y, m, d = map(int, day_str.split("-"))
+            the_day = date(y, m, d)
         else:
-            day = datetime.now(timezone.utc).date()
-
-        # Tenant-Filter (so wie in euren anderen Commands)
-        # Annahme: Member.tenant existiert; falls nicht, kommt der Tenant kontext anders rein.
-        members = s.query(Member).all()
+            the_day = datetime.now(timezone.utc).date()
 
         now = datetime.now(timezone.utc)
-        inserted = 0
-        updated = 0
+        inserted = updated = 0
 
+        members = s.query(Member).all()
         for m in members:
-            # Upsert: erst versuchen zu holen
+            tenant_val = getattr(m, "tenant", None) or slug
             row = (s.query(MemberDailySnapshot)
-                   .filter(MemberDailySnapshot.tenant == getattr(m, "tenant", slug))
-                   .filter(MemberDailySnapshot.user_id == m.user_id)
-                   .filter(MemberDailySnapshot.day == day)
-                   .one_or_none())
+                    .filter(MemberDailySnapshot.tenant == tenant_val)
+                    .filter(MemberDailySnapshot.user_id == m.user_id)
+                    .filter(MemberDailySnapshot.day == the_day)
+                    .one_or_none())
 
             values = dict(
-                tenant=getattr(m, "tenant", slug),
+                tenant=tenant_val,
                 user_id=m.user_id,
-                day=day,
+                day=the_day,
                 level_current=m.level_current,
                 points_7d=m.points_7d,
                 points_30d=m.points_30d,
@@ -437,8 +439,7 @@ def snapshot_members_daily(slug: str, day_str: str = None):
             )
 
             if row is None:
-                row = MemberDailySnapshot(**values)
-                s.add(row)
+                s.add(MemberDailySnapshot(**values))
                 inserted += 1
             else:
                 for k, v in values.items():
@@ -446,9 +447,7 @@ def snapshot_members_daily(slug: str, day_str: str = None):
                 updated += 1
 
         s.commit()
-        typer.echo(f"member_daily_snapshot: inserted={inserted} updated={updated} day={day}")
+        typer.echo(f"member_daily_snapshot: inserted={inserted} updated={updated} day={the_day}")
     finally:
         s.close()
 
-if __name__ == "__main__":
-    app()

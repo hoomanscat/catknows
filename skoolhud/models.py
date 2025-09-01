@@ -74,3 +74,33 @@ class LeaderboardSnapshot(Base):
     captured_at = Column(DateTime(timezone=True), server_default=func.now())
     source_file = Column(String, nullable=True)
     build_id = Column(String, nullable=True)
+
+# ganz oben sind bei dir bereits ähnliche Imports vorhanden – ergänze falls nötig:
+from sqlalchemy import Column, Integer, String, Date, DateTime, BigInteger, Index, UniqueConstraint
+# Base kommt bei dir bereits aus dem bestehenden Modell-Setup
+
+class MemberDailySnapshot(Base):
+    __tablename__ = "member_daily_snapshot"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    tenant = Column(String(64), nullable=False)
+    user_id = Column(String(64), nullable=False)
+    day = Column(Date, nullable=False)
+
+    level_current = Column(Integer)
+    points_7d = Column(Integer)
+    points_30d = Column(Integer)
+    points_all = Column(Integer)
+
+    rank_7d = Column(Integer)
+    rank_30d = Column(Integer)
+    rank_all = Column(Integer)
+
+    last_active_at_utc = Column(DateTime)
+    captured_at = Column(DateTime, nullable=False)  # wann dieser Tagesstand geschrieben wurde
+
+    __table_args__ = (
+        UniqueConstraint("tenant", "user_id", "day", name="uq_member_daily"),
+        Index("ix_mds_tenant_day", "tenant", "day"),
+        Index("ix_mds_tenant_user_day", "tenant", "user_id", "day"),
+    )
