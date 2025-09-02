@@ -33,7 +33,7 @@ def vectors_ingest(tenant: str = typer.Option("hoomans", "--tenant")):
     """Vektor-Store mit Reports/CSVs füttern."""
     import os
     os.environ["TENANT"] = tenant
-    ingest_vectors()
+    ingest_vectors(tenant)
 
 @app.command("vectors-search")
 def vectors_search(
@@ -141,7 +141,9 @@ def fetch_members_all(slug: str = typer.Option(..., help="Tenant Slug"),
                     new_ids.add(str(uid))
 
             # Normalisieren
-            res = normalize_members_json(s, t.slug, build, data, fpath)
+            # build ist direkt darüber definiert: build = f.discover_build_id()
+            build_id_val = build if 'build' in locals() and build is not None else ""
+            res = normalize_members_json(s, t.slug, build if build is not None else "", data, fpath)
             s.commit()
             total_inserted += res["inserted"]
             total_updated += res["updated"]
@@ -174,7 +176,7 @@ def fetch_members_all(slug: str = typer.Option(..., help="Tenant Slug"),
         # Nach erfolgreichem Fetch: Vector-Ingest für diesen Tenant
         try:
             typer.echo(f"Starte automatischen Vector-Ingest für Tenant '{slug}'...")
-            ingest_members_to_vector(slug, collection="skool_members")
+            ingest_members_to_vector(slug, collection_name="skool_members")
             typer.echo("Vector-Ingest abgeschlossen.")
         except Exception as e:
             typer.echo(f"Fehler beim Vector-Ingest: {e}")
@@ -374,6 +376,7 @@ def normalize_leaderboard(
         with open(fpath, "rb") as f:
             data = orjson.loads(f.read())
 
+        # Fix: build is not defined here, use a static/manual value or pass empty string
         res = normalize_leaderboard_json(s, t.slug, "manual", data, fpath, window)
         s.commit()
         typer.echo(
@@ -398,7 +401,7 @@ def fetch_leaderboard_all(slug: str, window: str = typer.Option("all", help="all
     total_ins = total_upd = total_scanned = 0
     while True:
         data, route, fpath = f.fetch_leaderboard_page(window=window, offset=offset, limit=limit)
-        res = normalize_leaderboard_json(s, slug, build_id=None, data=data, fpath=fpath, window=window)
+        res = normalize_leaderboard_json(s, slug, build_id="", data=data, fpath=fpath, window=window)
         s.commit()
         typer.echo(f"[{window}] offset={offset} -> inserted={res['inserted']}, updated={res['updated']}, scanned={res['scanned']}")
         total_ins += res["inserted"]; total_upd += res["updated"]; total_scanned += res["scanned"]
@@ -418,6 +421,7 @@ def fetch_leaderboard_all(slug: str, window: str = typer.Option("all", help="all
 
 import typer
 from datetime import datetime, timezone, date
+from typing import Optional
 
 def _to_dt_utc(x):
     if not x:
@@ -434,7 +438,7 @@ def _to_dt_utc(x):
         return None
 
 @app.command("snapshot-members-daily")
-def snapshot_members_daily(slug: str, day_str: str = None):
+def snapshot_members_daily(slug: str, day_str: Optional[str] = None):
     """
     Schreibt für alle Member einen Tages-Snapshot in member_daily_snapshot.
     day_str: YYYY-MM-DD (optional), Default = heute (UTC).
@@ -444,7 +448,8 @@ def snapshot_members_daily(slug: str, day_str: str = None):
 
     s = SessionLocal()
     try:
-        if day_str:
+        # Fix: Argument missing for parameter "tenant"
+        if day_str is not None:
             y, m, d = map(int, day_str.split("-"))
             the_day = date(y, m, d)
         else:
@@ -499,7 +504,7 @@ app = typer.Typer(add_completion=False) if 'app' not in globals() else app
 @app.command("vector-ingest")
 def vector_ingest(slug: str = typer.Argument(...), collection: str = typer.Option("skool_members", help="Chroma Collection Name")):
     """Ingest aller Members eines Tenants in den Vector Store (mit Embeddings)."""
-    ingest_members_to_vector(slug, collection)
+    ingest_members_to_vector(slug, collection_name=collection)
 
 @app.command("vector-search")
 def vector_search(query: str = typer.Argument(...), slug: str = typer.Option(None, help="Optional: Tenant-Filter"), top_k: int = typer.Option(5, help="Anzahl Treffer")):
@@ -509,9 +514,11 @@ def vector_search(query: str = typer.Argument(...), slug: str = typer.Option(Non
     where = {"tenant": slug} if slug else None
     res = similarity_search(col, query, n_results=top_k, where=where)
     ids = res.get("ids", [[]])[0]
-    docs = res.get("documents", [[]])[0]
-    metas = res.get("metadatas", [[]])[0]
+    docs = res.get("documents", [[]]) or [[]]
+    docs = docs[0] if isinstance(docs, list) else []
+    metas = res.get("metadatas", [[]]) or [[]]
+    metas = metas[0] if isinstance(metas, list) else []
     for i, (id_, doc, meta) in enumerate(zip(ids, docs, metas), start=1):
-    print(f"{i}. {meta.get('name','')} — user_id={meta.get('user_id','')} — points_all={meta.get('points_all',0)}")
-    doc_short = doc[:180].replace('\n',' ')
-    print(f"   {doc_short}{'...' if len(doc)>180 else ''}")
+        print(f"{i}. {meta.get('name','')} — user_id={meta.get('user_id','')} — points_all={meta.get('points_all',0)}")
+        doc_short = doc[:180].replace('\n',' ')
+        print(f"   {doc_short}{'...' if len(doc)>180 else ''}")
