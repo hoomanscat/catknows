@@ -2,6 +2,8 @@
 from __future__ import annotations
 import os
 from typing import Callable, List
+from dotenv import load_dotenv
+load_dotenv()
 
 _EMBEDDER = None
 
@@ -11,14 +13,16 @@ def _local_embedder() -> Callable[[List[str]], List[List[float]]]:
     model_name = os.getenv("SENTENCE_TRANSFORMERS_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
     model = SentenceTransformer(model_name)
     def encode(texts: List[str]) -> List[List[float]]:
-        return model.encode(texts, convert_to_numpy=False, normalize_embeddings=True).tolist()
+        return model.encode(texts, convert_to_numpy=False, normalize_embeddings=True)
     return encode
 
 def _openai_embedder() -> Callable[[List[str]], List[List[float]]]:
     # Optionaler Pfad über OpenAI (nur wenn explizit gewünscht).
     # Benötigt: OPENAI_API_KEY, OPENAI_EMBED_MODEL (z.B. "text-embedding-3-small")
     import openai
-    openai.api_key = os.environ["OPENAI_API_KEY"]
+    openai.api_key = os.getenv("OPENAI_API_KEY")
+    if not openai.api_key:
+        raise RuntimeError("OPENAI_API_KEY not set in environment or .env file.")
     model = os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
     def encode(texts: List[str]) -> List[List[float]]:
         # Batch-Call
@@ -33,3 +37,7 @@ def get_embedder() -> Callable[[List[str]], List[List[float]]]:
     use_openai = os.getenv("USE_OPENAI_EMBEDDINGS", "false").lower() in ("1","true","yes","y")
     _EMBEDDER = _openai_embedder() if use_openai else _local_embedder()
     return _EMBEDDER
+
+def get_collection(name: str):
+    client = get_client()
+    return get_or_create_collection(client, name)

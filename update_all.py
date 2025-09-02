@@ -1,9 +1,11 @@
 import subprocess
 import sys
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 SLUG = "hoomans"
-COOKIE_FILE = Path(__file__).parent / "cookie.txt"
 
 def run(cmd: list[str]):
     print(f"\n>>> {' '.join(cmd)}")
@@ -14,8 +16,9 @@ def run(cmd: list[str]):
 def main():
     print("==== SkoolHUD Update gestartet ====")
 
-    if not COOKIE_FILE.exists():
-        print(f"FEHLER: cookie.txt fehlt in {COOKIE_FILE}")
+    skool_cookie = os.getenv("SKOOL_COOKIE")
+    if not skool_cookie:
+        print(f"FEHLER: SKOOL_COOKIE nicht in .env gesetzt.")
         sys.exit(1)
 
     # 1) Members abrufen
@@ -35,6 +38,14 @@ def main():
     run(["skoolhud", "snapshot-members-daily", SLUG])
 
     print("\n==== SkoolHUD Update fertig ====")
+
+    # Reports an Discord senden
+    try:
+        print("Sende Reports an Discord...")
+        subprocess.run([sys.executable, "scripts/notify_reports_local.py", SLUG], check=True)
+        print("Reports erfolgreich gesendet.")
+    except Exception as e:
+        print(f"Fehler beim Senden der Reports: {e}")
 
 if __name__ == "__main__":
     main()

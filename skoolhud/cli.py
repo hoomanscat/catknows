@@ -5,7 +5,7 @@ from .models import Tenant
 from .config import settings
 from .fetcher import SkoolFetcher
 from .normalizer import normalize_members_json
-from skoolhud.vector.ingest import ingest as ingest_vectors
+from skoolhud.vector.ingest import ingest_members_to_vector as ingest_vectors
 from skoolhud.vector.query import search as search_vectors
 
 app = typer.Typer(help="Skool HUD CLI")
@@ -170,6 +170,14 @@ def fetch_members_all(slug: str = typer.Option(..., help="Tenant Slug"),
             time.sleep(wait_s)
 
         typer.echo(f"FERTIG. Gesamt: inserted={total_inserted}, updated={total_updated}.")
+
+        # Nach erfolgreichem Fetch: Vector-Ingest für diesen Tenant
+        try:
+            typer.echo(f"Starte automatischen Vector-Ingest für Tenant '{slug}'...")
+            ingest_members_to_vector(slug, collection="skool_members")
+            typer.echo("Vector-Ingest abgeschlossen.")
+        except Exception as e:
+            typer.echo(f"Fehler beim Vector-Ingest: {e}")
 
 
 
@@ -504,5 +512,6 @@ def vector_search(query: str = typer.Argument(...), slug: str = typer.Option(Non
     docs = res.get("documents", [[]])[0]
     metas = res.get("metadatas", [[]])[0]
     for i, (id_, doc, meta) in enumerate(zip(ids, docs, metas), start=1):
-        print(f"{i}. {meta.get('name','')} — user_id={meta.get('user_id','')} — points_all={meta.get('points_all',0)}")
-        print(f"   {doc[:180].replace('\n',' ')}{'...' if len(doc)>180 else ''}")
+    print(f"{i}. {meta.get('name','')} — user_id={meta.get('user_id','')} — points_all={meta.get('points_all',0)}")
+    doc_short = doc[:180].replace('\n',' ')
+    print(f"   {doc_short}{'...' if len(doc)>180 else ''}")

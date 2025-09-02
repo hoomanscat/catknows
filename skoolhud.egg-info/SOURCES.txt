@@ -4,6 +4,7 @@ setup.cfg
 setup.py
 skoolhud/__init__.py
 skoolhud/__main__.py
+skoolhud/cleanup_repo.py
 skoolhud/cli.py
 skoolhud/config.py
 skoolhud/db.py
@@ -18,3 +19,8 @@ skoolhud.egg-info/dependency_links.txt
 skoolhud.egg-info/entry_points.txt
 skoolhud.egg-info/requires.txt
 skoolhud.egg-info/top_level.txt
+skoolhud/vector/__init__.py
+skoolhud/vector/db.py
+skoolhud/vector/embed.py
+skoolhud/vector/ingest.py
+skoolhud/vector/query.py

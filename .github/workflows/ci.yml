@@ -40,9 +40,8 @@ jobs:
             echo "SKOOL_COOKIE not set; skipping live run."
             exit 0
           fi
-          echo "$SKOOL_COOKIE" > cookie.txt
           skoolhud init-db
-          skoolhud add-tenant --slug hoomans --group hoomans --cookie "$(cat cookie.txt)"
+          skoolhud add-tenant --slug hoomans --group hoomans --cookie "$SKOOL_COOKIE"
           skoolhud test-tenant --slug hoomans
           python update_all.py
           python skoolhud/ai/agents/run_all_agents.py --slug hoomans

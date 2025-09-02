@@ -85,7 +85,7 @@ def _send_discord(webhook_url: str, content: Optional[str] = None,
 
     # Für Debug im CI nicht ganze URL loggen
     head = webhook_url[:60] + "..."
-    print(f"POST → {head}  file={file_path.name if file_path else '-'}")
+    print(f"POST -> {head}  file={file_path.name if file_path else '-'}")
 
     try:
         if files:
@@ -251,6 +251,56 @@ def main():
     post_health(tenant)
     time.sleep(0.5)
     post_new_joiners(tenant)
+    time.sleep(0.5)
+
+    # Snapshots
+    webhook = _env("DISCORD_WEBHOOK_SNAPSHOTS")
+    snap = _glob_tenant(tenant, f"{tenant}/snapshot*.md", "snapshot*.md", f"{tenant}/snapshot*.csv", "snapshot*.csv")
+    if webhook:
+        if snap:
+            _send_discord(webhook, content=f"Snapshot Report", username="SkoolHUD", file_path=snap)
+        else:
+            _send_discord(webhook, content="No snapshot file found.", username="SkoolHUD")
+    time.sleep(0.5)
+
+    # Logs
+    webhook = _env("DISCORD_WEBHOOK_LOGS")
+    log = _glob_tenant(tenant, f"{tenant}/log*.txt", "log*.txt")
+    if webhook:
+        if log:
+            _send_discord(webhook, content=f"Log Report", username="SkoolHUD", file_path=log)
+        else:
+            _send_discord(webhook, content="No log file found.", username="SkoolHUD")
+    time.sleep(0.5)
+
+    # Alerts
+    webhook = _env("DISCORD_WEBHOOK_ALERTS")
+    alert = _glob_tenant(tenant, f"{tenant}/alert*.md", "alert*.md", f"{tenant}/alert*.txt", "alert*.txt")
+    if webhook:
+        if alert:
+            _send_discord(webhook, content=f"Alert Report", username="SkoolHUD", file_path=alert)
+        else:
+            _send_discord(webhook, content="No alert file found.", username="SkoolHUD")
+    time.sleep(0.5)
+
+    # Celebrations
+    webhook = _env("DISCORD_WEBHOOK_CELEBRATIONS")
+    celeb = _glob_tenant(tenant, f"{tenant}/celebration*.md", "celebration*.md", f"{tenant}/celebration*.txt", "celebration*.txt")
+    if webhook:
+        if celeb:
+            _send_discord(webhook, content=f"Celebration Report", username="SkoolHUD", file_path=celeb)
+        else:
+            _send_discord(webhook, content="No celebration file found.", username="SkoolHUD")
+    time.sleep(0.5)
+
+    # Shoutouts
+    webhook = _env("DISCORD_WEBHOOK_SHOUTOUTS")
+    shout = _glob_tenant(tenant, f"{tenant}/shoutout*.md", "shoutout*.md", f"{tenant}/shoutout*.txt", "shoutout*.txt")
+    if webhook:
+        if shout:
+            _send_discord(webhook, content=f"Shoutout Report", username="SkoolHUD", file_path=shout)
+        else:
+            _send_discord(webhook, content="No shoutout file found.", username="SkoolHUD")
 
 if __name__ == "__main__":
     main()

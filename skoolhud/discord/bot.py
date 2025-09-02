@@ -2,18 +2,15 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+load_dotenv()
 
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 log = logging.getLogger("skoolbot")
-
-# .env laden (immer vom Projektroot)
-ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT / ".env")
 
 def get_token() -> str:
     tok = (os.getenv("DISCORD_BOT_TOKEN") or "").strip()

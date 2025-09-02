@@ -14,8 +14,12 @@ def main():
         slug, group = t["slug"], t["group"]
         print(f"\n==== RUN for tenant: {slug} ({group}) ====\n")
         # ensure tenant exists (idempotent: add again with same cookie is ok)
+        import os
+        env_cookie = os.getenv("SKOOL_COOKIE")
+        if not env_cookie:
+            raise RuntimeError("SKOOL_COOKIE nicht in .env gesetzt!")
         run(["skoolhud", "add-tenant", "--slug", slug, "--group", group,
-             "--cookie", Path("cookie.txt").read_text(encoding="utf-8").strip()])
+             "--cookie", env_cookie.strip()])
 
         # fetch & normalize
         run(["skoolhud", "fetch-members-all", "--slug", slug])

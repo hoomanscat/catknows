@@ -12,8 +12,18 @@ jobs:
       contents: read
     env:
       SKOOL_COOKIE: ${{ secrets.SKOOL_COOKIE }}
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       TENANT_SLUG: hoomans
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      DISCORD_WEBHOOK_STATUS: ${{ secrets.DISCORD_WEBHOOK_STATUS }}
+      DISCORD_WEBHOOK_ALERTS: ${{ secrets.DISCORD_WEBHOOK_ALERTS }}
+      DISCORD_WEBHOOK_KPI: ${{ secrets.DISCORD_WEBHOOK_KPI }}
+      DISCORD_WEBHOOK_MOVERS: ${{ secrets.DISCORD_WEBHOOK_MOVERS }}
+      DISCORD_WEBHOOK_HEALTH: ${{ secrets.DISCORD_WEBHOOK_HEALTH }}
+      DISCORD_WEBHOOK_NEWJOINERS: ${{ secrets.DISCORD_WEBHOOK_NEWJOINERS }}
+      DISCORD_WEBHOOK_SNAPSHOTS: ${{ secrets.DISCORD_WEBHOOK_SNAPSHOTS }}
+      DISCORD_WEBHOOK_LOGS: ${{ secrets.DISCORD_WEBHOOK_LOGS }}
+      DISCORD_WEBHOOK_CELEBRATIONS: ${{ secrets.DISCORD_WEBHOOK_CELEBRATIONS }}
+      DISCORD_WEBHOOK_SHOUTOUTS: ${{ secrets.DISCORD_WEBHOOK_SHOUTOUTS }}
 
     steps:
       - name: Checkout
@@ -36,9 +46,8 @@ jobs:
             echo "SKOOL_COOKIE not set; skipping live run."
             exit 0
           fi
-          echo "$SKOOL_COOKIE" > cookie.txt
           skoolhud init-db
-          skoolhud add-tenant --slug "${TENANT_SLUG}" --group "${TENANT_SLUG}" --cookie "$(cat cookie.txt)"
+          skoolhud add-tenant --slug "${TENANT_SLUG}" --group "${TENANT_SLUG}" --cookie "$SKOOL_COOKIE"
           skoolhud test-tenant --slug "${TENANT_SLUG}"
           python update_all.py
           python skoolhud/ai/agents/run_all_agents.py --slug "${TENANT_SLUG}"

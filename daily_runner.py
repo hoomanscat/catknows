@@ -14,5 +14,13 @@ def main():
     run("skoolhud vector-ingest hoomans")              # <<< Vector Ingest
     print("\n✅ Daily run complete.\n")
 
+    # Reports an Discord senden
+    try:
+        print("Sende Reports an Discord...")
+        subprocess.run([sys.executable, "scripts/notify_reports_local.py", "hoomans"], check=True)
+        print("Reports erfolgreich gesendet.")
+    except Exception as e:
+        print(f"Fehler beim Senden der Reports: {e}")
+
 if __name__ == "__main__":
     main()

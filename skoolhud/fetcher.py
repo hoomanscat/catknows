@@ -4,6 +4,8 @@ Modul zum Abrufen von Daten aus Skool-Communities.
 Enthält die Klasse SkoolFetcher, die HTTP-Anfragen stellt und Cookies aus DB oder Datei lädt.
 """
 import os, json, time, re
+from dotenv import load_dotenv
+load_dotenv()
 import requests
 from bs4 import BeautifulSoup
 from .config import settings
@@ -28,33 +30,14 @@ class SkoolFetcher:
     # --- NEU: Cookie-Loader (DB -> Datei) ---------------------------------
     def _cookie_from_db_or_file(self, cookie_header: str | None) -> str:
         """
-        Lädt den Cookie entweder direkt aus dem Parameter oder aus der Datei.
+        Lädt den Cookie entweder direkt aus dem Parameter oder aus der Umgebungsvariable.
         """
-        try:
-            if cookie_header and cookie_header.strip() and "auth_token=" in cookie_header:
-                return cookie_header.strip()
-            return self._load_cookie_from_file()
-        except Exception:
-            # Fallback: lieber klarer Fehler als “leer”
-            raise RuntimeError("Kein gültiger Cookie gefunden. Lege eine cookie.txt im Projekt an oder speichere einen Cookie im Tenant.")
-
-    def _load_cookie_from_file(self) -> str:
-        """
-        Liest den kompletten Cookie-Header aus cookie.txt (eine Zeile) ein.
-        Gesuchte Orte (der erste Treffer gewinnt):
-          - <repo-root>/cookie.txt
-          - skoolhud/../cookie.txt (eine Ebene über dem Paketordner)
-        """
-        candidates = [
-            os.path.abspath(os.path.join(os.getcwd(), "cookie.txt")),
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cookie.txt")),
-            os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "cookie.txt")),
-        ]
-        for p in candidates:
-            if os.path.exists(p):
-                with open(p, "r", encoding="utf-8") as f:
-                    return f.read().strip()
-        raise RuntimeError(f"Cookie-Datei cookie.txt nicht gefunden. Versuchte Pfade: {candidates}")
+        if cookie_header and cookie_header.strip() and "auth_token=" in cookie_header:
+            return cookie_header.strip()
+        env_cookie = os.getenv("SKOOL_COOKIE")
+        if env_cookie and "auth_token=" in env_cookie:
+            return env_cookie.strip()
+        raise RuntimeError("Kein gültiger Cookie gefunden. Bitte SKOOL_COOKIE in .env setzen.")
 
     # --------- intern: Next.js Data-Routen robust abrufen (ohne 307) ----------
     def _get_next_data_json(self, url: str, referer_tail: str):

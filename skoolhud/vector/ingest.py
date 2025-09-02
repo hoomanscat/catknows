@@ -21,9 +21,14 @@ def _member_to_doc(m: Member) -> Dict[str, str]:
     }
 
 def ingest_members_to_vector(tenant: str, collection_name: str = "skool_members", batch_size: int = 512):
+
+    print(f"[vector] Starte Ingest für tenant={tenant}")
     s: Session = SessionLocal()
     try:
         rows: List[Member] = s.query(Member).filter(Member.tenant == tenant).all()
+        print(f"[vector] Gefundene Member: {len(rows)}")
+        if rows:
+            print(f"[vector] Beispiel-Member: {rows[0].__dict__}")
     finally:
         s.close()
 
@@ -52,14 +57,21 @@ def ingest_members_to_vector(tenant: str, collection_name: str = "skool_members"
 
         # Batch schreiben
         if len(ids) >= batch_size:
+            print(f"[vector] Batchgröße erreicht: {len(ids)}. Starte Embedding und Upsert...")
             embs = embed(docs)
+            print(f"[vector] Embeddings erzeugt: {len(embs)}")
             upsert_documents(col, ids, docs, metas, embeddings=embs)
             print(f"[vector] upsert batch: {len(ids)}")
             ids, docs, metas = [], [], []
 
     if ids:
+        print(f"[vector] Letzter Batch: {len(ids)}. Starte Embedding und Upsert...")
         embs = embed(docs)
+        print(f"[vector] Embeddings erzeugt: {len(embs)}")
         upsert_documents(col, ids, docs, metas, embeddings=embs)
         print(f"[vector] upsert batch: {len(ids)}")
 
     print(f"[vector] DONE tenant={tenant}, total={len(rows)} → collection={collection_name}")
+
+from skoolhud.vector.ingest import ingest_members_to_vector
+ingest_members_to_vector("hoomans", "skool_members")
