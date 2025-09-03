@@ -94,5 +94,5 @@ def ingest_members_to_vector(tenant: str, collection_name: str = "skool_members"
 
     print(f"[vector] DONE tenant={tenant}, total={len(rows)} → collection={collection_name}")
 
-from skoolhud.vector.ingest import ingest_members_to_vector
-ingest_members_to_vector("hoomans", "skool_members")
+# The module exposes `ingest_members_to_vector` for programmatic use.
+# Do not run the ingest on import — callers (CLI, scripts) should invoke it explicitly.

@@ -1,0 +1,36 @@
+name: CI - Validate Schemas
+on:
+  pull_request:
+    paths:
+      - 'exports/**'
+      - 'project-status/schemas/**'
+  workflow_dispatch: {}
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Validate artifacts against schemas
+        run: |
+          python - <<'PY'
+          import json, glob, sys, pathlib
+          from jsonschema import validate
+          base = pathlib.Path('project-status/schemas')
+          schemas = {
+            'kpi': json.loads((base/'kpi_report.schema.json').read_text(encoding='utf-8')),
+            'snapshot': json.loads((base/'member_daily_snapshot.schema.json').read_text(encoding='utf-8')),
+            'run': json.loads((base/'run_status.schema.json').read_text(encoding='utf-8')),
+          }
+          ok = True
+          for p in glob.glob('exports/reports/**/kpi*.json', recursive=True):
+              try: validate(instance=json.loads(open(p, encoding='utf-8').read()), schema=schemas['kpi'])
+              except Exception as e: print('KPI schema fail:', p, e); ok=False
+          for p in glob.glob('exports/status/runs/*/*/status.json', recursive=True):
+              try: validate(instance=json.loads(open(p, encoding='utf-8').read()), schema=schemas['run'])
+              except Exception as e: print('RUN schema fail:', p, e); ok=False
+          sys.exit(0 if ok else 1)
+          PY

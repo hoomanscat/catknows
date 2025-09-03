@@ -39,13 +39,9 @@ def main():
 
     print("\n==== SkoolHUD Update fertig ====")
 
-    # Reports an Discord senden
-    try:
-        print("Sende Reports an Discord...")
-        subprocess.run([sys.executable, "scripts/notify_reports_local.py", SLUG], check=True)
-        print("Reports erfolgreich gesendet.")
-    except Exception as e:
-        print(f"Fehler beim Senden der Reports: {e}")
+    # NOTE: notification is intentionally left to the caller (daily_runner)
+    # If you want to send notifications after an ad-hoc update_all run,
+    # call `python scripts/notify_reports_local.py {SLUG}` explicitly.
 
 if __name__ == "__main__":
     main()

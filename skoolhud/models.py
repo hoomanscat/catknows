@@ -60,6 +60,9 @@ class Member(Base):
     name = Column(String, nullable=True)
     email = Column(String, index=True, nullable=True)
 
+    # Skool tag (e.g. @username). Stored without forcing @, helper code can add it.
+    skool_tag = Column(String, index=True, nullable=True)
+
     joined_date = Column(String, nullable=True)
     approved_at = Column(String, nullable=True)
     role = Column(String, nullable=True)

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-import requests
+from skoolhud.utils.net import post_with_retry
 
 # .env laden (optional)
 try:
@@ -89,13 +89,16 @@ def _send_discord(webhook_url: str, content: Optional[str] = None,
 
     try:
         if files:
-            resp = requests.post(webhook_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=15)
+            resp = post_with_retry(webhook_url, json=payload, files=files, timeout=15)
         else:
-            resp = requests.post(webhook_url, json=payload, timeout=15)
-        print(f"Discord status: {resp.status_code}")
-        if resp.status_code >= 300:
-            print("Response:", resp.text[:500])
-        return resp.status_code
+            resp = post_with_retry(webhook_url, json=payload, timeout=15)
+        print(f"Discord status: {getattr(resp, 'status_code', '??')}")
+        if getattr(resp, 'status_code', 0) >= 300:
+            try:
+                print("Response:", resp.text[:500])
+            except Exception:
+                pass
+        return getattr(resp, 'status_code', -1)
     except Exception as e:
         print("ERROR sending to discord:", e)
         return -1
@@ -113,7 +116,7 @@ def post_kpi(tenant: str):
         return
     md = _glob_tenant(tenant, f"{tenant}/kpi_*.md", "kpi_*.md")
     if not md:
-        _send_discord(webhook, content=f"No KPI file found.", username="SkoolHUD")
+        print("SKIP KPI: no file found")
         return
     text = _read_text(md) or ""
     title = f"📊 KPI Daily — {tenant}"
@@ -135,7 +138,7 @@ def post_movers(tenant: str):
                       "leaderboard_movers.md",
                       "leaderboard_delta_true.md")
     if not md:
-        _send_discord(webhook, content="No movers file found.", username="SkoolHUD")
+        print("SKIP MOVERS: no file found")
         return
     text = _read_text(md) or ""
     embeds = [{
@@ -154,7 +157,7 @@ def post_health(tenant: str):
     md = _glob_tenant(tenant, f"{tenant}/member_health_summary.md", "member_health_summary.md")
     csv = _glob_tenant(tenant, f"{tenant}/member_health.csv", "member_health.csv")
     if not md:
-        _send_discord(webhook, content="No health summary file found.", username="SkoolHUD")
+        print("SKIP HEALTH: no file found")
         return
     text = _read_text(md) or ""
     embeds = [{
@@ -192,14 +195,56 @@ def post_new_joiners(tenant: str):
     if not webhook:
         print("SKIP NEW JOINERS: no webhook")
         return
+    # Prefer explicit joiners files produced by the joiners agent
+    out_dir = REPORTS_ROOT / tenant
+    week = out_dir / "new_joiners_week.md"
+    last = out_dir / "new_joiners_last_week.md"
+    d30 = out_dir / "new_joiners_30d.md"
+
+    sent_any = False
+    if week.exists():
+        text = _read_text(week) or ""
+        if text.strip():
+            _send_discord(webhook, embeds=[{
+                "title": f"✨ New Joiners — This Week — {tenant}",
+                "description": _short(text, 1800),
+                "footer": {"text": "SkoolHUD"},
+                "color": 0x9b59b6
+            }], username="Captain Hook")
+            sent_any = True
+    if last.exists():
+        text = _read_text(last) or ""
+        if text.strip():
+            _send_discord(webhook, embeds=[{
+                "title": f"✨ New Joiners — Last Week — {tenant}",
+                "description": _short(text, 1800),
+                "footer": {"text": "SkoolHUD"},
+                "color": 0x9b59b6
+            }], username="Captain Hook")
+            sent_any = True
+    if d30.exists():
+        text = _read_text(d30) or ""
+        if text.strip():
+            _send_discord(webhook, embeds=[{
+                "title": f"✨ New Joiners — Last 30 days — {tenant}",
+                "description": _short(text, 1800),
+                "footer": {"text": "SkoolHUD"},
+                "color": 0x9b59b6
+            }], username="Captain Hook")
+            sent_any = True
+
+    if sent_any:
+        return
+
+    # Fallback: extract from KPI as before
     md = _glob_tenant(tenant, f"{tenant}/kpi_*.md", "kpi_*.md")
     if not md:
-        _send_discord(webhook, content="No KPI file to extract joiners.", username="Captain Hook")
+        print("SKIP NEW JOINERS: no KPI file and no joiners files")
         return
     text = _read_text(md) or ""
     items = _extract_new_joiners_from_kpi(text)
     if not items:
-        _send_discord(webhook, content="No KPI file to extract joiners.", username="Captain Hook")
+        print("SKIP NEW JOINERS: no items extracted from KPI")
         return
 
     # Schöne Liste bauen
@@ -214,14 +259,18 @@ def post_new_joiners(tenant: str):
 
 def post_status(tenant: str):
     webhook = _env("DISCORD_WEBHOOK_STATUS")
-    verify_txt = REPORTS_ROOT / "verify.txt"
+    webhook = _env("DISCORD_WEBHOOK_STATUS")
+    # prefer tenantized verify file, then exports/reports/verify.txt, then repo-root verify.txt
+    verify_txt = REPORTS_ROOT / tenant / "verify.txt"
+    if not verify_txt.exists():
+        verify_txt = REPORTS_ROOT / "verify.txt"
+    if not verify_txt.exists():
+        verify_txt = Path("verify.txt")
     if not webhook:
         print("SKIP STATUS: no webhook")
         return
     if not verify_txt.exists():
-        # Fallback: kurze Statuszeile
-        content = f"SkoolHUD Daily — {tenant}"
-        _send_discord(webhook, content=content, username="Captain Hook")
+        print("SKIP STATUS: verify.txt not present")
         return
     text = _read_text(verify_txt) or ""
     # Ein einfaches Embed mit Spaltenähnlicher Formatierung
@@ -260,7 +309,7 @@ def main():
         if snap:
             _send_discord(webhook, content=f"Snapshot Report", username="SkoolHUD", file_path=snap)
         else:
-            _send_discord(webhook, content="No snapshot file found.", username="SkoolHUD")
+            print("SKIP SNAPSHOTS: no file found")
     time.sleep(0.5)
 
     # Logs
@@ -270,7 +319,7 @@ def main():
         if log:
             _send_discord(webhook, content=f"Log Report", username="SkoolHUD", file_path=log)
         else:
-            _send_discord(webhook, content="No log file found.", username="SkoolHUD")
+            print("SKIP LOGS: no file found")
     time.sleep(0.5)
 
     # Alerts
@@ -280,7 +329,7 @@ def main():
         if alert:
             _send_discord(webhook, content=f"Alert Report", username="SkoolHUD", file_path=alert)
         else:
-            _send_discord(webhook, content="No alert file found.", username="SkoolHUD")
+            print("SKIP ALERTS: no file found")
     time.sleep(0.5)
 
     # Celebrations
@@ -290,7 +339,7 @@ def main():
         if celeb:
             _send_discord(webhook, content=f"Celebration Report", username="SkoolHUD", file_path=celeb)
         else:
-            _send_discord(webhook, content="No celebration file found.", username="SkoolHUD")
+            print("SKIP CELEBRATIONS: no file found")
     time.sleep(0.5)
 
     # Shoutouts
@@ -300,7 +349,7 @@ def main():
         if shout:
             _send_discord(webhook, content=f"Shoutout Report", username="SkoolHUD", file_path=shout)
         else:
-            _send_discord(webhook, content="No shoutout file found.", username="SkoolHUD")
+            print("SKIP SHOUTOUTS: no file found")
 
 if __name__ == "__main__":
     main()

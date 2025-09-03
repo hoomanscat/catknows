@@ -1,8 +1,9 @@
 from pathlib import Path
+import argparse
 from skoolhud.db import SessionLocal
 from skoolhud.models import Member
+from skoolhud.utils import reports_dir_for
 
-OUT_DIR = Path("exports/reports")
 
 def top_movers(session, window: str, topn: int = 15):
     # window in {"7d","30d","all"}
@@ -21,7 +22,11 @@ def top_movers(session, window: str, topn: int = 15):
     return rows
 
 def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--slug", default="hoomans")
+    args = ap.parse_args()
+
+    out_dir = reports_dir_for(args.slug)
     s = SessionLocal()
     try:
         movers7 = top_movers(s, "7d")
@@ -31,19 +36,19 @@ def main():
         lines = []
         lines.append("# Leaderboard Movers (Heuristic)")
         lines.append("")
-        lines.append("## Top 15 — past 7 days")
+        lines.append("## Top 15  past 7 days")
         for i,(n,p) in enumerate(movers7, start=1):
-            lines.append(f"{i:>2}. {n} — {p or 0} pts")
+            lines.append(f"{i:>2}. {n}  {p or 0} pts")
         lines.append("")
-        lines.append("## Top 15 — past 30 days")
+        lines.append("## Top 15  past 30 days")
         for i,(n,p) in enumerate(movers30, start=1):
-            lines.append(f"{i:>2}. {n} — {p or 0} pts")
+            lines.append(f"{i:>2}. {n}  {p or 0} pts")
         lines.append("")
-        lines.append("## Top 15 — all time")
+        lines.append("## Top 15  all time")
         for i,(n,p) in enumerate(moversAll, start=1):
-            lines.append(f"{i:>2}. {n} — {p or 0} pts")
+            lines.append(f"{i:>2}. {n}  {p or 0} pts")
 
-        out = OUT_DIR / "leaderboard_movers.md"
+        out = out_dir / "leaderboard_movers.md"
         out.write_text("\n".join(lines), encoding="utf-8")
         print(f"geschrieben: {out}")
     finally:

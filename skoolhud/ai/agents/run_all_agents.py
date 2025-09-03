@@ -8,7 +8,11 @@ AGENTS = [
     "health_score.py",
     "leaderboard_delta.py",          # (optional: ebenfalls tenantisieren)
     "export_members_snapshot.py",
+    "joiners.py",
     "leaderboard_delta_true.py",
+    "alerts.py",
+    "celebrations.py",
+    "snapshot_report.py",
 ]
 
 def run_agent(script: str, slug: str):
@@ -25,7 +29,7 @@ def main():
     args = ap.parse_args()
     for script in AGENTS:
         run_agent(script, args.slug)
-    print("\n✅ Agents OK (tenantized)\n")
+    print("\n[OK] Agents completed (tenantized)\n")
 
 if __name__ == "__main__":
     main()

@@ -445,6 +445,17 @@ def snapshot_members_daily(slug: str, day_str: Optional[str] = None):
     """
     from skoolhud.db import SessionLocal
     from skoolhud.models import Member, MemberDailySnapshot
+    from skoolhud.utils.schema_utils import validate_json
+    import json
+    from pathlib import Path
+
+    # load member_daily_snapshot schema if available
+    SCHEMA_PATH = Path(__file__).resolve().parents[1] / "project-status" / "schemas" / "member_daily_snapshot.schema.json"
+    _MDS_SCHEMA = None
+    try:
+        _MDS_SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        _MDS_SCHEMA = None
 
     s = SessionLocal()
     try:
@@ -481,6 +492,21 @@ def snapshot_members_daily(slug: str, day_str: Optional[str] = None):
                 last_active_at_utc=_to_dt_utc(m.last_active_at_utc),
                 captured_at=now,
             )
+
+            # validate minimal snapshot dict against schema if available
+            if _MDS_SCHEMA is not None:
+                from datetime import date as _date, datetime as _dt
+                the_day_val = values.get("day")
+                if isinstance(the_day_val, (_date, _dt)):
+                    day_iso = the_day_val.isoformat()
+                elif isinstance(the_day_val, str):
+                    day_iso = the_day_val
+                else:
+                    day_iso = None
+                minimal = {"tenant": values.get("tenant"), "user_id": str(values.get("user_id")), "day": day_iso, "points_7d": values.get("points_7d"), "points_30d": values.get("points_30d"), "points_all": values.get("points_all")}
+                ok, err = validate_json(minimal, _MDS_SCHEMA)
+                if not ok:
+                    print(f"MemberDailySnapshot schema validation failed for user {values.get('user_id')}: {err}")
 
             if row is None:
                 s.add(MemberDailySnapshot(**values))

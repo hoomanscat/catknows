@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Run Status",
+  "type":"object",
+  "required":["run_id","tenants","steps","ok","artifacts"],
+  "properties":{
+    "run_id":{"type":"string","pattern":"^\\d{8}-\\d{4}$"},
+    "tenants":{"type":"array","items":{"type":"string"}},
+    "steps":{"type":"array","items":{"type":"string"}},
+    "ok":{"type":"boolean"},
+    "errors":{"type":"array","items":{"type":"string"}},
+    "artifacts":{"type":"object"}
+  }
+}

@@ -4,6 +4,17 @@ from datetime import datetime, timezone
 from skoolhud.db import SessionLocal
 from skoolhud.models import Member
 from skoolhud.utils import reports_dir_for
+from skoolhud.utils.schema_utils import validate_json
+import json
+from pathlib import Path
+
+# load schema if available
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "project-status" / "schemas" / "kpi_report.schema.json"
+_KPI_SCHEMA = None
+try:
+    _KPI_SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+except Exception:
+    _KPI_SCHEMA = None
 
 def main():
     ap = argparse.ArgumentParser()
@@ -37,6 +48,41 @@ def main():
     ]
     for name, pts, rank in top5:
         lines.append(f"- #{rank if rank is not None else '-'}  {name} — {pts} pts")
+
+        # Recent New Joiners (if available)
+        try:
+            recent = s.query(Member.name, Member.joined_date).filter(Member.joined_date != None).order_by(Member.joined_date.desc()).limit(20).all()
+        except Exception:
+            recent = []
+
+        if recent:
+            lines.append("")
+            lines.append("## New Joiners")
+            for name, jd in recent:
+                try:
+                    date_str = jd.isoformat() if hasattr(jd, "isoformat") else str(jd)
+                except Exception:
+                    date_str = str(jd)
+                lines.append(f"- {name} — joined {date_str}")
+
+    # Build a minimal data dict for schema validation
+    data = {
+        "date": now.date().isoformat(),
+        "tenant": args.slug,
+        "metrics": {
+            "total": total,
+            "active7": active7,
+            "active30": active30,
+        },
+        "new_joiners": [
+            name for name, _ in (s.query(Member.name, Member.joined_date).filter(Member.joined_date != None).order_by(Member.joined_date.desc()).limit(20).all() or [])
+        ],
+    }
+
+    if _KPI_SCHEMA is not None:
+        ok, err = validate_json(data, _KPI_SCHEMA)
+        if not ok:
+            print(f"KPI schema validation failed: {err}")
 
     p = out_dir / f"kpi_{now.date().isoformat()}.md"
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")

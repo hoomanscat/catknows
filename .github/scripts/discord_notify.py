@@ -10,6 +10,8 @@ from __future__ import annotations
 import os, json, pathlib, urllib.request, urllib.error, re
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+from glob import glob
+import pathlib
 
 # ---------- utils ----------
 
@@ -75,7 +77,14 @@ def _read_text(path: str) -> str:
 # ---------- messages ----------
 
 def send_status(slug: str, run_url: str) -> None:
-    raw = _read_text("verify.txt") or "verify.txt not found."
+    # prefer tenantized verify file under exports/reports/{slug}/verify.txt, fallback to repo-root verify.txt
+    # prefer tenantized verify file under exports/reports/{slug}/verify.txt,
+    # then non-tenantized exports/reports/verify.txt, then repo-root verify.txt
+    raw = _read_text(f"exports/reports/{slug}/verify.txt")
+    if not raw:
+        raw = _read_text("exports/reports/verify.txt")
+    if not raw:
+        raw = _read_text("verify.txt") or "verify.txt not found."
 
     def m(rx: str) -> Optional[int]:
         r = re.search(rx, raw)
@@ -108,11 +117,16 @@ def send_status(slug: str, run_url: str) -> None:
     _send_discord(hook_status or hook_alerts, {"embeds":[emb]})
     if not ok and hook_alerts:
         _send_discord(hook_alerts, {"embeds":[emb]})
-
 def send_kpi(slug: str, run_url: str) -> None:
     from glob import glob
     files = sorted(glob(f"exports/reports/{slug}/kpi_*.md"))
-    txt = _read_text(files[-1]) if files else "No KPI file found."
+    if not files:
+        print("SKIP KPI: no file found")
+        return
+    txt = _read_text(files[-1])
+    if not txt:
+        print("SKIP KPI: file empty")
+        return
     emb = _embed(f"📊 KPI Daily — {slug}", f"```md\n{txt[:1900]}\n```", "7289DA", url=run_url)
     _send_discord(getenv("DISCORD_WEBHOOK_KPI") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
 
@@ -121,26 +135,98 @@ def send_movers(slug: str, run_url: str) -> None:
     if not txt:
         txt = _read_text(f"exports/reports/{slug}/leaderboard_movers.md")
     if not txt:
-        txt = "No movers file found."
+        print("SKIP MOVERS: no file found")
+        return
     emb = _embed(f"📈 Movers — {slug} (7d)", f"```md\n{txt[:1900]}\n```", "2ECC71", url=run_url)
     _send_discord(getenv("DISCORD_WEBHOOK_MOVERS") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
 
 def send_health(slug: str, run_url: str) -> None:
-    txt = _read_text(f"exports/reports/{slug}/member_health_summary.md") or "No health summary file found."
+    txt = _read_text(f"exports/reports/{slug}/member_health_summary.md")
+    if not txt:
+        print("SKIP HEALTH: no file found")
+        return
     emb = _embed(f"❤️ Member Health — {slug}", f"```md\n{txt[:1900]}\n```", "E67E22", url=run_url)
     _send_discord(getenv("DISCORD_WEBHOOK_HEALTH") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
 
 def send_joiners(slug: str, run_url: str) -> None:
     from glob import glob
     files = sorted(glob(f"exports/reports/{slug}/kpi_*.md"))
-    txt = _read_text(files[-1]) if files else ""
-    if txt:
-        lines = [ln for ln in txt.splitlines() if "joined" in ln]
-        txt = "\n".join(lines) if lines else "No new joiners today."
-    else:
-        txt = "No KPI file to extract joiners."
+    if not files:
+        print("SKIP NEWJOINERS: no KPI file")
+        return
+    txt = _read_text(files[-1]) or ""
+    lines = [ln for ln in txt.splitlines() if "joined" in ln]
+    if not lines:
+        print("SKIP NEWJOINERS: no joiners found in KPI")
+        return
+    txt = "\n".join(lines)
     emb = _embed(f"✨ New Joiners — {slug}", f"```md\n{txt[:1900]}\n```", "9B59B6", url=run_url)
     _send_discord(getenv("DISCORD_WEBHOOK_NEWJOINERS") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
+
+def _find_first(glob_patterns: List[str]) -> Optional[str]:
+    """Return first existing file matching any of the given glob patterns."""
+    for pat in glob_patterns:
+        for p in sorted(glob(pat, recursive=True)):
+            if pathlib.Path(p).is_file():
+                return p
+    return None
+
+def send_celebrations(slug: str, run_url: str) -> None:
+    # try common names
+    patterns = [
+        f"exports/reports/{slug}/celebrations*.md",
+        f"exports/reports/{slug}/celebration*.md",
+        f"exports/reports/{slug}/shoutout*.md",
+        f"exports/reports/{slug}/celebrations*.csv",
+        f"exports/reports/{slug}/leaderboard_movers*.md",
+        f"exports/reports/{slug}/leaderboard_movers.md",
+    ]
+    p = _find_first(patterns)
+    if not p:
+        print("SKIP CELEBRATIONS: no file found")
+        return
+    txt = _read_text(p) or ""
+    if not txt:
+        print("SKIP CELEBRATIONS: file empty")
+        return
+    emb = _embed(f"🎉 Celebrations — {slug}", f"```md\n{txt[:1900]}\n```", "F1C40F", url=run_url)
+    _send_discord(getenv("DISCORD_WEBHOOK_CELEBRATIONS") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
+
+def send_snapshots(slug: str, run_url: str) -> None:
+    # look for members snapshot CSV in exports or data_lake
+    patterns = [
+        f"exports/reports/{slug}/*snapshot*.md",
+        f"exports/reports/{slug}/*snapshot*.csv",
+        f"data_lake/{slug}/members/**/members.csv",
+        f"exports/snapshots/{slug}/*.csv",
+    ]
+    p = _find_first(patterns)
+    if not p:
+        print("SKIP SNAPSHOTS: no file found")
+        return
+    if pathlib.Path(p).suffix.lower() == ".csv":
+        emb = _embed(f"📦 Snapshots — {slug}", f"CSV snapshot found: {p}", "95A5A6", url=run_url)
+        _send_discord(getenv("DISCORD_WEBHOOK_SNAPSHOTS") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
+        return
+    txt = _read_text(p) or ""
+    if not txt:
+        print("SKIP SNAPSHOTS: file empty")
+        return
+    emb = _embed(f"📦 Snapshots — {slug}", f"```md\n{txt[:1900]}\n```", "95A5A6", url=run_url)
+    _send_discord(getenv("DISCORD_WEBHOOK_SNAPSHOTS") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
+
+def send_alerts(slug: str, run_url: str) -> None:
+    # Alerts mirror status but only post if verify.txt exists and has content
+    raw = _read_text(f"exports/reports/{slug}/verify.txt")
+    if not raw:
+        raw = _read_text("exports/reports/verify.txt")
+    if not raw:
+        raw = _read_text("verify.txt")
+    if not raw:
+        print("SKIP ALERTS: no verify.txt")
+        return
+    emb = _embed(f"⚠️ Alerts — {slug}", f"```text\n{raw[:1900]}\n```", "E74C3C", url=run_url)
+    _send_discord(getenv("DISCORD_WEBHOOK_ALERTS") or getenv("DISCORD_WEBHOOK_STATUS"), {"embeds":[emb]})
 
 # ---------- entry ----------
 
@@ -154,6 +240,9 @@ def main() -> None:
     elif mode == "movers": send_movers(slug, run_url)
     elif mode == "health": send_health(slug, run_url)
     elif mode == "joiners":send_joiners(slug, run_url)
+    elif mode == "celebrations": send_celebrations(slug, run_url)
+    elif mode == "snapshots": send_snapshots(slug, run_url)
+    elif mode == "alerts": send_alerts(slug, run_url)
     else:
         print(f"WARN: Unknown MODE={mode} -> skipping")
 
