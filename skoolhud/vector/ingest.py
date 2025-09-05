@@ -1,6 +1,6 @@
 # skoolhud/vector/ingest.py
 from __future__ import annotations
-from typing import List, Dict
+from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from skoolhud.db import SessionLocal
 from skoolhud.models import Member
@@ -96,3 +96,102 @@ def ingest_members_to_vector(tenant: str, collection_name: str = "skool_members"
 
 # The module exposes `ingest_members_to_vector` for programmatic use.
 # Do not run the ingest on import — callers (CLI, scripts) should invoke it explicitly.
+def ingest_reports_to_vector(
+    tenant: str,
+    patterns: Optional[List[str]] = None,
+    collection_name: str = "skool_reports",
+    batch_size: int = 128,
+):
+    """Ingest textual report files (markdown, txt, csv) from exports/reports/<tenant>/ into the vector store.
+
+    - patterns: glob patterns (relative to exports/reports/<tenant>) to include, e.g. ['ai_kpi_summary_*.md']
+    - collection_name: chroma collection name to upsert into
+    """
+    from pathlib import Path
+    import re
+
+    print(f"[vector] Starte Report-Ingest für tenant={tenant} patterns={patterns} collection={collection_name}")
+    base = Path("exports") / "reports" / tenant
+    if not base.exists():
+        print(f"[vector] Kein reports-Verzeichnis für tenant={tenant}: {base}")
+        return
+
+    # sensible defaults if not provided
+    if not patterns:
+        patterns = [
+            "ai_kpi_summary_*.md",
+            "ai_health_plan_*.md",
+            "new_joiners_*.md",
+            "leaderboard_movers*.md",
+            "alerts*.md",
+            "celebrations*.md",
+            "shoutouts*.md",
+            "snapshot_*.md",
+        ]
+
+    # collect files
+    files = []
+    for pat in patterns:
+        files.extend(sorted(base.glob(pat)))
+
+    if not files:
+        print(f"[vector] Keine Report-Dateien gefunden für tenant={tenant} (patterns={patterns})")
+        return
+
+    client = get_client()
+    col = get_or_create_collection(client, collection_name)
+    embed = get_embedder()
+
+    ids, docs, metas = [], [], []
+
+    def strip_markdown(txt: str) -> str:
+        # very light markdown stripping: remove code fences, images, and headings
+        txt = re.sub(r"```[\s\S]*?```", " ", txt)
+        txt = re.sub(r"!\[[^\]]*\]\([^\)]+\)", " ", txt)
+        txt = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", txt)
+        txt = re.sub(r"^#+\s*", "", txt, flags=re.MULTILINE)
+        return txt.strip()
+
+    for p in files:
+        try:
+            text = p.read_text(encoding='utf-8')
+        except Exception:
+            continue
+        text = strip_markdown(text)
+        if not text:
+            continue
+
+        fid = f"{tenant}:report:{p.name}:{int(p.stat().st_mtime)}"
+        ids.append(fid)
+        docs.append(text)
+        metas.append({
+            "tenant": tenant,
+            "filename": p.name,
+            "path": str(p),
+            "mtime": int(p.stat().st_mtime),
+        })
+
+        if len(ids) >= batch_size:
+            print(f"[vector] Report-Batchgröße erreicht: {len(ids)}. Starte Embedding und Upsert...")
+            embs = embed(docs)
+            def tensor_to_list(e):
+                if hasattr(e, 'tolist'):
+                    return e.tolist()
+                return e
+            embs = [tensor_to_list(e) for e in embs]
+            upsert_documents(col, ids, docs, metas, embeddings=embs)
+            print(f"[vector] upsert report batch: {len(ids)}")
+            ids, docs, metas = [], [], []
+
+    if ids:
+        print(f"[vector] Letzter Report-Batch: {len(ids)}. Starte Embedding und Upsert...")
+        embs = embed(docs)
+        def tensor_to_list(e):
+            if hasattr(e, 'tolist'):
+                return e.tolist()
+            return e
+        embs = [tensor_to_list(e) for e in embs]
+        upsert_documents(col, ids, docs, metas, embeddings=embs)
+        print(f"[vector] upsert report batch: {len(ids)}")
+
+    print(f"[vector] DONE report-ingest tenant={tenant} total_files={len(files)} → collection={collection_name}")

@@ -18,3 +18,30 @@ class Settings(BaseModel):
 
 # Instanz der Settings, wird von anderen Modulen importiert
 settings = Settings()
+
+def get_tenant_slug(provided: str | None = None) -> str:
+    """Resolve tenant slug from provided value, env, tenants.json, or fallback.
+
+    Order of precedence:
+    1. provided (non-empty)
+    2. environment variable TENANT_SLUG
+    3. tenants.json first entry
+    4. fallback to 'hoomans'
+    """
+    if provided:
+        return provided
+    env = os.environ.get("TENANT_SLUG")
+    if env:
+        return env
+    # try tenants.json
+    try:
+        import json
+        from pathlib import Path
+        p = Path("tenants.json")
+        if p.exists():
+            data = json.loads(p.read_text(encoding='utf-8'))
+            if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict) and data[0].get("slug"):
+                return data[0]["slug"]
+    except Exception:
+        pass
+    return "hoomans"

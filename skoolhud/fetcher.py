@@ -120,7 +120,7 @@ class SkoolFetcher:
         fpath = self._save_raw(route, build_id, data)
         return data, route, fpath
 
-    def fetch_members_json_page(self, build_id: str, page: int):
+    def fetch_members_json_page(self, build_id: str, page: int | None = None):
         params = {} if page in (None, 1) else {"page": page}
         return self.fetch_members_json_with_params(build_id, params)
 
@@ -144,7 +144,7 @@ class SkoolFetcher:
         except Exception:
             return False
 
-    def fetch_leaderboard_json(self, window: str = None, build_id: str | None = None):
+    def fetch_leaderboard_json(self, window: str | None = None, build_id: str | None = None):
         group = self.group_path
 
         def add_win(route: str) -> str:

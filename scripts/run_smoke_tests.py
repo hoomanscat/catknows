@@ -3,14 +3,16 @@ from pathlib import Path
 import sys
 
 def main():
-    print("Running agents runner for 'hoomans'...")
-    res = subprocess.run([sys.executable, "skoolhud/ai/agents/run_all_agents.py", "--slug", "hoomans"], capture_output=True, text=True)
+    from skoolhud.config import get_tenant_slug
+    tenant = get_tenant_slug(None)
+    print(f"Running agents runner for '{tenant}'...")
+    res = subprocess.run([sys.executable, "skoolhud/ai/agents/run_all_agents.py", "--slug", tenant], capture_output=True, text=True)
     print(res.stdout)
     if res.returncode != 0:
         print(res.stderr)
         raise SystemExit(2)
 
-    out = Path("exports") / "reports" / "hoomans"
+    out = Path("exports") / "reports" / tenant
     if not out.exists():
         print("Reports dir missing")
         raise SystemExit(3)

@@ -1,303 +1,449 @@
-## Advanced Project Conventions & Templates
-
-- **Data-Contracts (JSON-Schemas):**
-	- All reports and snapshots must follow a defined JSON schema (see `project-status/schemas/` for templates).
-	- Example: `member_daily_snapshot.schema.json`, `kpi_report.schema.json`.
-
-- **Run-ID & Status-Artefacts:**
-	- Every pipeline run writes a unique run ID and status file to `exports/status/` (e.g. `last-run.txt`, `run-YYYYMMDD-HHMM.json`).
-
-- **Rate-Limit/Retry-Wrapper:**
-	- Use `skoolhud/utils/net.py` for all network calls. Centralizes rate-limiting, retries, and error handling.
-
-- **Testing-Mindeststandard:**
-	- Run smoke tests and fixtures before every push. See `TESTING.md` for details.
-	- Use `verify_system.py` for basic health checks.
-
-- **Bot-Spezifikation & Channel-Mapping:**
-	- All bot commands and Discord channel mappings are documented in `BOT_COMMANDS.md`.
-	- Webhook env variables must match channel names (see `.env` and `notify_reports_local.py`).
-
-- **Security/PII-Leitplanken:**
-	- Never log or export sensitive user data (PII) outside the system.
-	- See `SECURITY.md` for rules and audit checklist.
-
-- **Konfig & Feature-Flags:**
-	- All config is in `config/app.yaml`. Use feature flags for experimental features.
-
-- **CI-Polish:**
-	- Use matrix builds, concurrency limits, and artifact retention in workflows. See `.github/workflows/ci.yml` for examples.
-
-- **Tenants-Onboarding:**
-	- All tenants are listed in `tenants.json` and described in `TENANTS.md`.
-	- Onboarding steps and requirements are documented for each tenant.
-
-- **Prompts & AI-Guardrails:**
-	- All AI prompts and guardrails are versioned in `project-status/prompts/`.
-
-- **Optionale Containerisierung:**
-	- Dockerfile and container setup are available for easy deployment. See `Dockerfile` and `README.md`.
-
-- **.env-Extras:**
-	- Additional env variables: `RATE_LIMIT_MIN_DELAY`, `RETRY_MAX`, `RETENTION_DAYS`, `AI_MAX_COST_EUR` for fine-tuning system behavior.
-
----
-
-Refer to the listed files for ready-to-use templates and further details. Always keep this section up to date as new conventions and templates are added.
-# Step-by-Step Instructions & Live Roadmap for SkoolHUD
-
-## Roles & Workflow
-You are now the developer in charge of SkoolHUD/CatKnows. Follow these instructions step by step. The 'Master' (user) gives you tasks and information, you execute and report back. Always use simple language and PowerShell commands for every action.
-
-## Handover & Checklist
-Refer to `PROJECT_HANDOVER.md` and `DEV_CHECKLIST.md` for current status and next To-Dos. These files are your starting point for every new task.
-
-## Step 1: Prepare Development Environment
-- Ensure `.env` exists in the project root. If missing, create it:
-	```powershell
-	New-Item -ItemType File -Path .\.env
-	notepad .\.env
-	```
-- Add all required secrets:
-	- `SKOOL_COOKIE` (Skool login cookie)
-	- Discord webhook URLs: `DISCORD_WEBHOOK_STATUS`, `DISCORD_WEBHOOK_ALERTS`, `DISCORD_WEBHOOK_KPIS`, `DISCORD_WEBHOOK_MOVERS`, `DISCORD_WEBHOOK_HEALTH`, `DISCORD_WEBHOOK_NEWJOINERS`
-	- `DISCORD_BOT_TOKEN` (Discord bot token, 3 parts, not a webhook)
-- Install Python dependencies:
-	```powershell
-	pip install -r requirements.txt
-	```
-
-## Step 2: Update Codebase & Fix Bugs
-- Open `skoolhud/models.py` and update all models to use SQLAlchemy 2.0 style (`Mapped[...] = mapped_column(...)`).
-- Remove any test code at the end of `skoolhud/vector/ingest.py` that runs ingest on import.
-- Ensure all ENV variable names are consistent in `.env` and code.
-
-## Step 3: Test Vector Store Integration
-- Run vector ingest manually:
-	```powershell
-	python -m skoolhud.cli vector-ingest hoomans
-	```
-- Check for output like "Embeddings erzeugt: ..." and no errors.
-
-## Step 4: Run Full Pipeline
-- Start the daily runner:
-	```powershell
-	python daily_runner.py
-	```
-- Watch for errors and check Discord for posted reports.
-
-## Step 5: Start & Test Discord Bot
-- Start the bot:
-	```powershell
-	python skoolhud/discord/bot.py
-	```
-- Test commands in Discord: `!ping`, `!who <Thema>`
-
-## Step 6: Extend Bot Features
-- Implement real search for `!who`, `!whois`, and `!health` using the vector store and reports.
-
-## Roadmap (as of 2025-09-03)
-- Immediate: Setup script, better CLI errors, automated status reporting, last-run status file
-- Short-Term: Refactor layers, move notification logic, make agent outputs accessible, document workflows
-- Medium-Term: Integrate AI agents for report analysis/action items, modular agent system, smarter Discord bot, more analytics
-- Long-Term: Full automation, proactive AI suggestions, extensibility for new sources/analytics/integrations
-
-## Update Protocol
-- After any major change, add a bullet to "Recent Changes" and update "Known Issues" if needed.
-- If new workflows or conventions are introduced, document them here.
-- If a bug is fixed or a new integration is added, note it here.
-
-## Example Update
-- **2025-09-03:** Fixed embedding conversion bug in vector ingest. All upserts now use Python lists.
-
----
-
-If any section is unclear or missing important conventions, please provide feedback for further refinement. This file should always reflect the current state and rules of the project.
-
-<!-- AUTO:STATUS START -->
-- Letzter Run: `n/a`
-- Runs total: 0
-<!-- AUTO:STATUS END -->
-
-<!-- AUTO:BACKLOG START -->
-- [ ] Strict JSON Schema Validation in CI anschalten
-- [ ] Smoke-Runner als CI-Job (PR-Gates)
-- [ ] Net-Wrapper flächendeckend verwenden
-<!-- AUTO:BACKLOG END -->
  
-## Recent edits by Copilot (summary)
+--- 
+## 🧰 Mini-Kommandos (PowerShell)
+Hier ist die **neue `copilot-instructions.md`** — eine **einzielige** Anleitung für deine ausführende KI.
+Sie führt von 0 → „Discord-Post mit AI-Insights“ in klaren Schritten, inkl. **FERTIG-Checkliste**, **Abnahmekriterien**, **Prompts** (Agent-Systemprompts), und **Selbst-Validierung**.
 
-- Added tenant-aware `joiners` agent and small agents: `alerts.py`, `celebrations.py`, `snapshot_report.py`.
-- Notifier `scripts/notify_reports_local.py` now prefers tenantized joiners files and skips placeholder posts; uses `skoolhud/utils/net.py` for retries.
-- DB: added `skool_tag` to `skoolhud/models.py`, created Alembic revision `20250903_add_skool_tag_to_members.py`, and applied the column locally (Alembic stamped head).
-- Added `skoolhud/utils/schema_utils.py` and JSON schemas (`kpi_report`, `member_daily_snapshot`); KPI agent and daily snapshot CLI now perform runtime validation (warnings only).
-- Testing: added `scripts/run_smoke_tests.py` to run agents and assert expected artifacts; fixed Windows console emoji issue in `run_all_agents.py`.
 
-Run: To re-check quickly, run `python scripts/run_smoke_tests.py` locally (requires environment and `.env` configured).
+# SkoolHUD – Copilot Instructions (Single-Goal Playbook)
 
-If you prefer stricter validation, I can make schema failures abort runs and write failure summaries to `exports/reports/<slug>/verify.txt` or add a CI job to run the smoke tests.
+## 🎯 Ziel (ein Satz)
 
-## Notes for AI agents — current status & conventions
+**Pro Tenant per Run**: Reports **validieren → analysieren → zusammenfassen → sicher posten**.
+**Ergebnis:** `exports/ai/<tenant>/<run_id>/insights.md` + `actions.md` erstellt **und** in den AI-Discord-Kanal gepostet.
 
-- Repos & reported artifacts
-	- Agents write tenantized artifacts into `exports/reports/<slug>/` (markdown, CSV). Use `skoolhud.utils.reports_dir_for(slug)` to locate/create dirs.
-	- Raw snapshots land under `data_lake/<slug>/members/dt=YYYY-MM-DD/`.
+> **Definition of Done (DoD)**
+>
+> 1. Dateien `insights.md` & `actions.md` existieren,
+> 2. Discord-Webhook liefert **2xx**,
+> 3. Status `exports/status/runs/<run_id>/<tenant>/status.json` enthält `"ok": true`.
 
-- Schemas & validation
-	- JSON schemas are under `project-status/schemas/` (currently: `kpi_report.schema.json`, `member_daily_snapshot.schema.json`).
-	- `skoolhud/utils/schema_utils.py` provides `validate_json(instance, schema)` returning (ok, err). Validation is currently non-blocking (prints warnings); consider updating policy if you need strictness.
 
-- Database & migrations
-	- `skoolhud/models.py` contains SQLAlchemy models. `Member` includes `skool_tag` column; an Alembic revision `alembic/versions/20250903_add_skool_tag_to_members.py` was added and Alembic was stamped head during dev.
-	- Local dev run also applied a one-off `ALTER TABLE` to add `skool_tag` to `skool.db`; CI should run `alembic upgrade head` instead of relying on the manual ALTER.
+## 🔧 Rahmen (immer gültig)
 
-- Network & notifications
-	- Use `skoolhud/utils/net.py::post_with_retry` for HTTP POSTs (rate-limit/retry wrapper). Local notifier `scripts/notify_reports_local.py` uses it; prefer it over ad-hoc requests.
-	- Notifier will skip posting when files are missing or placeholders; it prefers explicit joiners files then falls back to KPI-extracted sections.
+* **Read-only DB** in der KI-Schicht (nur `SELECT`),
+* **Rate-Limit/Retry** zentral via `skoolhud/utils/net.py` (≥15s Delay, 3x Backoff),
+* **Keine Secrets** in Logs/Posts, Maskierung von PII (E-Mail, Handles),
+* **Arbeiten strikt datenbasiert** (keine Halluzinationen; bei fehlenden Daten: „Daten fehlen“).
+* **Tool-Preambles & klare Stop-Bedingungen** in Prompts: upfront Plan + Fortschritt, dann sauberes Ende. ([OpenAI Kochbuch][1])
 
-- Vector store
-	- Vector ingest helper: `skoolhud/vector/ingest.py` and CLI `skoolhud.cli vector-ingest` (or `vectors-ingest`) exist. Ingest converts embeddings to Python lists before upsert.
 
-- Testing & CI
-	- Lightweight smoke runner: `scripts/run_smoke_tests.py` — runs `run_all_agents.py --slug hoomans` and checks expected artifacts (no pytest dependency). Add CI job to run it on PRs.
-	- `verify_system.py` prints DB counts and checks for presence of joiner files; CI workflows read `verify.txt` for diagnostics.
+## ✅ FERTIG-Checkliste (die **einzige** To-do-Liste)
 
-- Console & environment notes
-	- Windows consoles may not accept emoji (cp1252); avoid emoji in agent stdout. Use ASCII messages for status logs.
-	- All secrets are expected in `.env` (Discord webhooks, SKOOL_COOKIE, DISCORD_BOT_TOKEN). Do not write secrets to repo.
+> Arbeite diese Liste **von oben nach unten** ab.
+> Nach jedem Schritt: schreibe einen **Beleg** (siehe „Beweis/Abnahme“) **und** markiere in `build_checklist.json` den Schritt als erledigt.
 
-- If you change DB schema during runtime
-	- Prefer adding an Alembic revision and call `alembic upgrade head` in CI; if you must ALTER local sqlite for dev, also `alembic stamp head` to keep migration history consistent.
+1. [ ] **Run-ID erzeugen & Ordner anlegen**
 
-- Quick commands for local dev
-	- Run agents for tenant `hoomans`: `python skoolhud/ai/agents/run_all_agents.py --slug hoomans`
-	- Run smoke test harness: `python scripts/run_smoke_tests.py`
-	- Run notifier locally: `python scripts/notify_reports_local.py hoomans`
+   * Erzeuge `RUN_ID=YYYYMMDD-HHMMSS` (UTC timestamp including seconds).
+   * Lege `exports/ai/<tenant>/<RUN_ID>/` an.
 
-These notes should help downstream agents discover conventions and avoid common pitfalls. Update them if you introduce new agents, schemas, or CI steps.
-## Recent changes & Copilot status (2025-09-03)
+2. [ ] **Neueste Input-Artefakte finden**
 
-This project has been actively edited by the automated assistant. Below is a concise record of edits I applied, verification performed, and remaining recommended next steps.
+   * Suche pro Typ (KPI/Health/Movers/Delta/Snapshot) die **neueste** Datei unter `exports/reports/<tenant>/**` (CSV/JSON/MD).
 
-- Agent & reports
-	- Added tenant-aware `joiners` agent: writes `exports/reports/<slug>/new_joiners_week.md`, `new_joiners_last_week.md`, `new_joiners_30d.md` with lines like:
-		- "Linda - @skooltag - joined on 02.09.2025 ( <8 Hours ago ) [user_id]"
-	- Added resilience when DB lacks `skool_tag`.
-	- Registered `joiners` in `skoolhud/ai/agents/run_all_agents.py`.
-	- Added new agents earlier in the session: `alerts.py`, `celebrations.py`, `snapshot_report.py` (produce verify.txt / alerts / celebrations / snapshot files tenantized).
+3. [ ] **Schema-Validierung (Gate)**
 
-- Notifier & CI
-	- `scripts/notify_reports_local.py` updated to prefer explicit joiners files and post three separate embeds (This Week / Last Week / Last 30 days), falling back to KPI extraction.
-	- Notifiers now skip posting placeholder messages when files are absent (local + CI pattern applied earlier).
-	- CI `daily.yml` already parses `verify.txt` and posts a summary embed; verify step now captures `verify.txt` output.
+   * Validiere alle JSON/CSV-Inputs gegen `schemas/**`.
+   * Erzeuge `validate.json` mit `{ ok, errors[], warnings[], files_checked }`.
+   * **Abbruch** bei `ok=false` (kritisch).
 
-- DB & migrations
-	- Added `skool_tag` Column to SQLAlchemy model (`skoolhud/models.py`).
-	- Created Alembic revision `alembic/versions/20250903_add_skool_tag_to_members.py` to add `skool_tag`.
-	- Applied a one-off `ALTER TABLE members ADD COLUMN skool_tag TEXT` to the local `skool.db` (so runtime now has column). If you prefer tracked migration state, run `alembic stamp head` or `alembic upgrade head`.
+4. [ ] **Analysten ausführen** (in dieser Reihenfolge)
+   a) **KPIAnalyst** → `kpi_findings.json`
+   b) **HealthAnalyst** (DB read-only) → `health_findings.json`
+   c) **MoversAnalyst** → `movers_findings.json`
+   d) **DeltaAnalyst** → `delta_true_findings.json`
+   e) **SnapshotAnalyst** (+ optional **Expert-Finder**) → `snapshot_findings.json`, `experts.json`
 
-- Utilities & verification
-	- `skoolhud/utils.py` contains `reports_dir_for()` and `datalake_members_dir_for()` helpers (used by agents).
-	- `verify_system.py` was enhanced with DB-fallback raw-SQL counts and a smoke-check that prints whether joiners files exist for a sample tenant.
+5. [ ] **Composer** (Schreiber)
 
-- Files added/edited (high level)
-	- Added: `skoolhud/ai/agents/joiners.py`
-	- Edited: `skoolhud/models.py` (added `skool_tag`), `scripts/notify_reports_local.py`, `skoolhud/ai/agents/run_all_agents.py`, `verify_system.py`
-	- Added Alembic revision: `alembic/versions/20250903_add_skool_tag_to_members.py`
-	- Added helper script: `scripts/add_skool_tag_column.py` (ran locally to add column)
+   * Konsolidiere Findings → `insights.json` → `insights.md` & `actions.md` (kurz, prägnant, umsetzbar).
 
-- Verification performed
-	- Ran `python skoolhud/ai/agents/joiners.py --slug hoomans` — files produced and counts printed.
-	- Ran `python scripts/notify_reports_local.py hoomans` — notifier posted available embeds and printed HTTP statuses.
-	- Ran `python verify_system.py` — DB diagnostics printed and joiners files presence reported.
+6. [ ] **Safety-Gate**
 
-- Pending / recommended next steps
-	1. Migrations: run one of:
-		 - `alembic stamp head` (if you already applied the column manually) OR
-		 - `alembic upgrade head` (to let Alembic apply the revision). Keeping Alembic state consistent is recommended.
-	2. Add `project-status/schemas/` JSON schemas for `kpi_report` and `member_daily_snapshot` and validate agent outputs against them.
-	3. Create `skoolhud/utils/net.py` — central rate-limit/retry wrapper and replace direct requests/urllib calls.
-	4. Add CI smoke-tests (pytest) that run `run_all_agents.py --slug hoomans` and assert `exports/reports/hoomans/new_joiners_*.md` exist.
+   * PII-Redaktion + Kosten-Budget prüfen; ggf. kürzen oder abbrechen.
+   * Protokolliere Prüfresultat in `status.json`.
 
-If you want, I can implement any of the pending steps now (run Alembic stamp/upgrade, scaffold JSON schemas, add the net wrapper, or add CI tests).
-## Roadmap (as of 2025-09-03)
+7. [ ] **Dispatcher (Discord)**
 
-### Immediate Next Steps
-- Add a setup script for easy local installation and environment setup
-- Improve CLI error messages and help output for better usability
-- Automate basic testing and status reporting after each pipeline run
-- Write last-run status to a file for easy troubleshooting
+   * Poste `insights.md` (und optional `actions.md`) an `DISCORD_WEBHOOK_AI_INSIGHTS` (Chunking + Retry).
+   * Schreibe `dispatch.json` mit HTTP-Statuscodes.
 
-### Short-Term Goals
-- Refactor codebase for clearer separation of layers (data, logic, agents, notification)
-- Move notification/reporting logic into a dedicated module for easier extension
-- Make all agent outputs (reports, snapshots) easily accessible for other agents and bots
-- Document all workflows and update instructions.md after every major change
+8. [ ] **Status schreiben**
 
-### Medium-Term Goals
-- Integrate AI agents that can analyze reports and data, generate action items, and post well-researched summaries to Discord
-- Build a modular system for adding new analysis/reporting agents with minimal code changes
-- Improve Discord bot to answer user queries with data-driven insights and recommendations
-- Add more tenant-specific analytics and custom report types
+   * `exports/status/runs/<RUN_ID>/<tenant>/status.json` mit `{ run_id, tenant, steps[], ok, artifacts{} }`.
+   * `exports/status/last_run.json` aktualisieren.
 
-### Long-Term Vision
-- Fully automate data pipeline, reporting, and Discord integration for any Skool community
-- Enable AI agents to proactively suggest improvements, flag anomalies, and guide users based on live data
-- Make the system extensible for new data sources, analytics, and integrations
+9. [ ] **Dok-Marker (optional)**
+
+   * Aktualisiere `copilot-instructions.md` AUTO-Marker (Status/Backlog).
+
+10. [ ] **FERTIG**
+
+* Alle drei DoD-Kriterien erfüllt (oben).
+* Trage `"finished": true` in `build_checklist.json` ein.
+
+**Beweis/Abnahme (pro Schritt):**
+Erzeuge/aktualisiere `exports/ai/<tenant>/<RUN_ID>/build_checklist.json`:
+
+```json
+{
+   "run_id": "20250904-093000",
+  "tenant": "hoomans",
+  "steps": {
+    "id_created": true,
+    "inputs_found": true,
+    "validated": {"ok": true, "files_checked": 7},
+    "analysts": {"kpi": true, "health": true, "movers": true, "delta": true, "snapshot": true},
+    "composed": true,
+    "safety_passed": true,
+    "dispatched": {"http_status": 204},
+    "status_written": true,
+    "docs_updated": false
+  },
+  "finished": true
+}
+```
+
+
+## 🧭 Ablauf (genau so umsetzen)
+
+### 1) Orchestrator (Startpunkt)
+
+**Pfad:** `skoolhud/ai/orchestrator.py` (CLI: `python -m skoolhud.cli run-orchestrator <tenant>`; alias `python -m skoolhud.cli orchestrator <tenant>` is supported)
+**Tut:** erzeugt Run-ID, findet Inputs, ruft Validator → Analysten → Composer → Safety → Dispatcher → Status.
+**Abnahme:** Rückgabe enthält `outdir`, `items` (>=5), HTTP-Status in `dispatch.json`.
+
+### 2) Validator (Gate)
+
+**Pfad:** `skoolhud/ai/agents/validator.py`
+**Input:** `exports/reports/<tenant>/**`, `schemas/**`
+**Output:** `validate.json` (Schema unten) + Fehlerliste an Orchestrator
+**Abbruchregel:** `ok=false` ⇒ Run stoppen, `status.json.ok=false`.
+
+```json
+// validate.json (Schema)
+{
+  "ok": true,
+  "files_checked": 0,
+  "errors": [],
+  "warnings": []
+}
+```
+
+### 3) Analysten (fachlich)
+
+**Reihenfolge und Outputs:**
+
+* KPI → `kpi_findings.json`
+* Health (mit DB-Query) → `health_findings.json`
+* Movers → `movers_findings.json`
+* DeltaTrue → `delta_true_findings.json`
+* Snapshot (+ optional Expert-Finder) → `snapshot_findings.json`, `experts.json`
+
+**Format (einheitlich):**
+
+```json
+{
+   "run_id": "20250904-093000",
+  "tenant": "hoomans",
+  "agent": "HealthAnalyst",
+  "bullets": ["5 Mitglieder >14 Tage inaktiv: Alice, Bob, …"],
+  "actions": [{"title": "DM an Alice/Bob", "due_days": 2}],
+  "evidence": {"sources": ["exports/reports/.../health.json"], "query": "SELECT ... LIMIT 5"}
+}
+```
+
+### 4) Composer (Schreiber)
+
+**Pfad:** `skoolhud/ai/agents/composer.py`
+**Tut:** Wandelt alle `*_findings.json` in `insights.json`, `insights.md`, `actions.md` um.
+**Regeln:** kurze klare Sätze, keine Jargon-Wolken; **Tool-Preamble** im LLM-Prompt: Ziel paraphrasieren → Plan → Ausführung → Abschluss. ([OpenAI Kochbuch][1])
+
+### 5) Safety (PII & Kosten)
+
+**Pfad:** `skoolhud/ai/agents/safety.py`
+**Checks:** PII maskieren, Budget-Grenzen (Tokens/Kosten); bei Verstoß: sanitizen oder abbrechen.
+
+### 6) Dispatcher (Discord)
+
+**Pfad:** `skoolhud/ai/agents/dispatcher.py`
+**Tut:** Post an `DISCORD_WEBHOOK_AI_INSIGHTS` (Chunking, Retry, Backoff); schreibt `dispatch.json`.
+
+### 7) Status & Doku
+
+**Pfad:** `scripts/update_copilot_instructions.py` (optional)
+**Tut:** schreibt `exports/status/runs/<RUN_ID>/<tenant>/status.json` und aktualisiert AUTO-Marker.
+
+
+## 🧱 Dateien & Pfade (Kanonisch)
+
+* **Inputs:** `exports/reports/<tenant>/**` (CSV/JSON/MD), **DB** (read-only), **Vector** (`./vector_store`, Collection `skool_members`)
+* **Outputs:** `exports/ai/<tenant>/<RUN_ID>/{validate.json, *_findings.json, insights.json, insights.md, actions.md, dispatch.json}`
+* **Status:** `exports/status/runs/<RUN_ID>/<tenant>/status.json`, `exports/status/last_run.json`
+
+
+## 🧪 Selbst-Validierung (automatisch)
+
+Nach dem Run müssen diese Checks **grün** sein:
+
+1. **Dateien vorhanden**
+
+   * `insights.md`, `actions.md`, `dispatch.json`, `status.json`, `validate.json`
+2. **Discord-Antwort**
+
+   * `dispatch.json.http_status` ∈ {200, 201, 204}
+3. **Status**
+
+   * `status.json.ok == true`, `last_run.json` aktualisiert
+4. **Schema-Konformität**
+
+   * `run_status.schema.json` & `validate.schema.json` **pass**
+5. **FERTIG**
+
+   * `build_checklist.json.finished == true`
+
+
+## 🧠 Prompt-Paket (Systemprompts)
+
+> Prompts folgen best practices zu **Agenten-Steuerung**, **Tool-Preambles** und **kontrollierter Eifrigkeit**: upfront Ziel+Plan, klare Stop-Kriterien, konsistente Fortschrittsmeldungen. Nutze „geringere Eifrigkeit“ für schnelle, fokussierte Schritte; erhöhe Eifrigkeit nur, wenn die Aufgabe komplex ist. ([OpenAI Kochbuch][1])
+
+### A) Globaler System-Prompt (alle Analysten)
+
+```
+Du bist ein sachlicher Analyst für SkoolHUD.
+ZIEL: Erzeuge kurze, belastbare Befunde aus gelieferten Dateien/DB-Abfragen.
+REGELN:
+```
+
+### B) KPIAnalyst (System)
+
+```
+Rolle: KPI-Analyst.
+Aufgabe: Identifiziere die 3 wichtigsten Kennzahlen/Trends (7d/30d/Aktivität).
+Daten: kpi_report.* (+ optional DB-Snapshots).
+Lieferform: bullets[], actions[], evidence{} wie im Schema.
+Hinweis: Keine Erklärungen außerhalb der Daten. Kurz, präzise, umsetzbar.
+```
+
+### C) HealthAnalyst (System)
+
+```
+Rolle: Health/Churn-Analyst.
+Aufgabe: Finde inaktive Segmente und schlage 2-3 Re-Engagement-Maßnahmen vor.
+Daten: health_score.* + DB (SELECT nur, z.B. inaktiv >14 Tage).
+Lieferform: bullets[], actions[], evidence{query, sources[]}.
+Maske PII in Text (Handles/E-Mails).
+```
+
+### D) MoversAnalyst (System)
+
+```
+Rolle: Movers-Analyst.
+Aufgabe: Top-Mover & echte Veränderungen benennen; 1 Challenge vorschlagen.
+Daten: leaderboard_delta.*, leaderboard_delta_true.*.
+Lieferform: bullets[], actions[], evidence{sources[]}.
+```
+
+### E) SnapshotAnalyst (System)
+
+```
+Rolle: Snapshot-Segmentierer.
+Aufgabe: 2-3 sinnvolle Segmente + Beispiel-Mitglieder vorschlagen.
+Daten: export_members_snapshot.* (+ optional Vector "skool_members").
+Lieferform: bullets[], actions[], evidence{sources[], (optional) vector_hits[]}.
+```
+
+### F) Expert-Finder (System)
+
+```
+Rolle: Expert-Finder.
+Aufgabe: Für <topic> die Top-3 Personen aus Vector-Fundus nennen + kurzer Grund.
+Daten: Vector-Suche (Chroma, Collection "skool_members").
+Lieferform: JSON {hits:[{member_id,name,reason,score,source_meta}]}.
+Hinweis: Nur nennen, wenn Trefferqualität ausreichend; sonst "Daten fehlen".
+```
+
+### G) Composer (System)
+
+```
+Rolle: Executive-Writer.
+Aufgabe: Aus allen Findings eine 8-12 Zeilen "insights.md" + checklist "actions.md".
+Stil: kurze Sätze, konkrete Verben, 0% Jargon, max 12 Zeilen Insights.
+Tool-Preamble: Ziel paraphrasieren → Plan → dann klare Abschnitte schreiben.
+Stoppe, wenn beide Dateien schlüssig sind.
+```
+
+### H) Dispatcher (System)
+
+```
+Rolle: Dispatcher.
+Aufgabe: "insights.md" (und optional "actions.md") posten.
+Regeln: Chunking (<=1800 Zeichen), Retry/Backoff, Erfolgscode in dispatch.json.
+Text: Keine PII im Klartext; Emojis sparsam; präziser Titel.
+```
+
+> **Hinweis zur Agenten-Steuerung:** Klare Preambles/Pläne und explizite Persistenz/Stop-Kriterien erhöhen die Vorhersehbarkeit in agentischen Flows (z. B. „plane zuerst, führe dann aus; beende, wenn alle Teilaufgaben erledigt sind“). Steuer’ die „Eifrigkeit“: niedriger für schnelle, enge Aufgaben; höher für komplexe Ketten. ([OpenAI Kochbuch][1])
+
+
+## 🗂️ Artefakte (sollten existieren, wenn „FERTIG“)
+
+* `exports/ai/<tenant>/<RUN_ID>/validate.json`
+* `exports/ai/<tenant>/<RUN_ID>/*_findings.json`
+* `exports/ai/<tenant>/<RUN_ID>/insights.json`
+* `exports/ai/<tenant>/<RUN_ID>/insights.md`
+* `exports/ai/<tenant>/<RUN_ID>/actions.md`
+* `exports/ai/<tenant>/<RUN_ID>/dispatch.json`
+* `exports/status/runs/<RUN_ID>/<tenant>/status.json`
+* `exports/status/last_run.json`
+ 
+## 📝 Journal (Copilot)
+
+Kurzjournal: unten steht, welche Punkte aus der 10er-Checkliste ich implementiert habe, mit knappen Belegen (Dateien/Orte).
+
+1) Run-ID & Ordner anlegen — Done
+   - Beleg: `skoolhud/ai/orchestrator.py` erzeugt `RUN_ID` und legt `exports/ai/<tenant>/<RUN_ID>/` an.
+
+2) Input-Artefakte finden — Done
+   - Beleg: Suche/Resolver in Orchestrator + `skoolhud/ai/agents/validator.py` verwendet `exports/reports/<tenant>/**`.
+
+3) Schema-Validierung (Gate) — Done
+   - Beleg: `validate.json` geschrieben in `exports/ai/<tenant>/<RUN_ID>/validate.json` (Shape `{ok,errors,warnings,files_checked}`).
+
+4) Analysten ausführen — Done
+   - Beleg: `exports/ai/<tenant>/<RUN_ID>/*_findings.json` (z.B. `kpi_findings.json`, `health_findings.json`).
+
+5) Composer → insights/actions — Done
+   - Beleg: `insights.json`, `insights.md`, `actions.md` im Run-Ordner; PII-Masking in `skoolhud/ai/agents/safety.py`.
+
+6) Safety-Gate (PII & Kosten) — Mostly Done
+   - Beleg: PII-Redaktion vorhanden; Budget/Token-Telemetrie ist minimal (weiteres Hardening empfohlen).
+
+7) Dispatcher (Discord) — Done
+   - Beleg: `skoolhud/ai/agents/dispatcher.py` unterstützt preview, guard, retry, `--force`; `dispatch.json` und `dispatch_preview.json` in Run-Ordner.
+
+8) Status schreiben (canonical) — Done
+   - Beleg: `exports/status/runs/<RUN_ID>/<tenant>/status.json` und `exports/status/last_run.json` werden geschrieben.
+
+9) Docs / AUTO-Marker — Done (manual update)
+   - Beleg: `exports/ai/<tenant>/<RUN_ID>/build_checklist.json` erstellt; `.github/copilot-instructions.md` AUTO-Block wurde aktualisiert for that run. Full auto-updater script is deferred.
+
+10) FERTIG marker — Done for the example run
+   - Beleg: `build_checklist.json.finished == true` for the executed run. CI enforcement deferred.
 
 ---
 
-All agents and developers should use this roadmap to guide their work. Update this section as priorities shift or new ideas emerge.
+## 📨 Detailed note to the other AI (evidence-backed)
 
-# AI Agent Instructions & Project Status for SkoolHUD
+I implemented the orchestrator flow and supporting agents to complete the 10‑point checklist end-to-end; below are precise artifacts, file edits, commands run, and outcomes you can inspect.
 
-## Purpose
-This file is the single source of truth for all AI agents and developers. It contains live, actionable instructions and status updates for building, maintaining, and understanding the SkoolHUD system. Always keep it up to date!
+Files & key edits (code locations):
+- `skoolhud/ai/orchestrator.py` — run-id creation, input resolver, validator gate, analyst sequencing, composer + safety + dispatcher wiring.
+- `skoolhud/ai/agents/validator.py` — canonical `validate.json` shape and gate behavior.
+- `skoolhud/ai/agents/composer.py` — consolidates findings → `insights.json`, `insights.md`, `actions.md`.
+- `skoolhud/ai/agents/safety.py` — PII masking rules and allowlist for `@skool`.
+- `skoolhud/ai/agents/dispatcher.py` — guarded posting, preview, chunking, retry/backoff, `--force` behavior, writes `dispatch.json`.
+- `skoolhud/ai/agents/*_analysts.py` (kpi_report.py, health_score.py, leaderboard_delta*.py, export_members_snapshot.py) — produce `*_findings.json`.
+- `skoolhud/config.py` & `skoolhud/cli.py` — tenant resolution (`get_tenant_slug()` used throughout).
+- `skoolhud/fetcher.py` — small typing fix (`Optional` for page/window params) to satisfy static checks.
+- `.github/workflows/notify_test.yml` & `.github/workflows/daily.yml` — fixed `workflow_dispatch.inputs`, normalized `env` mappings, and adjusted `if:` to use `env.DISCORD_WEBHOOK_URL` or `github.event_name` to avoid parse-time `secrets` evaluation.
+- Added CI workflows: `.github/workflows/run-tests.yml` and `.github/workflows/validate-workflows-ci.yml`.
 
-## How to Use
-- Read this file before starting any coding or automation task.
-- Update after major changes, refactors, or new feature additions.
-- Use it to communicate current architecture, conventions, and known issues to future agents.
+Representative artifacts (inspect these paths in the repo):
+- validate summary: `exports/ai/example-tenant/20250904T193846Z/validate.json` (shape: {ok, errors, warnings, files_checked}).
+- findings: `exports/ai/example-tenant/20250904T193846Z/kpi_findings.json`, `health_findings.json`, etc.
+- composed outputs: `exports/ai/example-tenant/20250904T193846Z/insights.json`, `insights.md`, `actions.md`.
+- dispatch records: `exports/ai/example-tenant/20250904T193846Z/dispatch.json` and `dispatch_preview.json`.
+- run checklist: `exports/ai/example-tenant/20250904T193846Z/build_checklist.json` (shows per-step booleans and `finished: true`).
+- canonical status: `exports/status/runs/20250904T193846Z/example-tenant/status.json` and `exports/status/last_run.json`.
 
-## Current System Status (2025-09-03)
-- **Architecture:**
-	- Multi-tenant data pipeline for Skool communities
-	- SQLite for classic DB, ChromaDB for vector store
-	- Typer CLI (`skoolhud/cli.py`) for all pipeline steps
-	- Agents in `skoolhud/ai/agents/` for analysis/reporting
-	- Discord integration via webhooks (all secrets in `.env`)
-	- Automation via `daily_runner.py` and GitHub workflows
-- **Recent Changes:**
-	- Vector ingest now robust: Embeddings always converted to Python lists before upsert
-	- All secrets/cookies loaded from `.env`, never from files
-	- All reports are tenant-specific; global reports removed
-	- CI and daily workflows post to all Discord channels
-	- All Pylance/type errors in CLI and ingest fixed
-- **Known Issues:**
-	- No dedicated test suite; rely on CLI smoke tests and `verify_system.py`
-	- Discord notifications handled by separate scripts, not agents
+Commands I executed during development (can be re-run locally):
+- YAML validation: `python validate_yaml.py` → both workflows parse OK.
+- Tests: `pytest -q` → previous local run reported `7 passed` (see test artifacts/CI job `run-tests.yml`).
+- Orchestrator: `python -m skoolhud.cli run-orchestrator example-tenant --force` (used to create run artifacts and exercise dispatcher).
+- Direct dispatcher test: small Python call invoking `skoolhud.ai.agents.dispatcher.Dispatcher.dispatch(...)` with `force=True` to verify live post.
 
-- **Recent Changes (2025-09-03, delta):**
-	- Fixed duplicate Discord notifications during a single daily run: removed duplicate notify call from `update_all.py` so `daily_runner.py` is the single notification trigger.
-	- Notify scripts (`scripts/notify_reports_local.py` and `.github/scripts/discord_notify.py`) now skip posting placeholder "No ... file found." messages when a report file is absent or empty. Channels will remain quiet unless real content exists.
-	- Local dry-run validation executed; recommendation: run `python daily_runner.py` to confirm no duplicates in your environment.
-- **Key Workflows:**
-	- Local: Activate venv, set up `.env`, run CLI commands
-	- Full pipeline: `daily_runner.py` or sequence of CLI steps
-	- Vector ingest: Automated after member updates
-	- Reporting: Agents generate markdown/CSV, notification scripts post to Discord
-- **Integration Points:**
-	- Discord webhooks: All channels must be present in `.env` and GitHub secrets
-	- ChromaDB: Ingest/search via `skoolhud/vector/ingest.py` and `skoolhud/vector/query.py`
+Live dispatch outcome (example):
+- The direct dispatcher run posted successfully (HTTP 200). The recorded `dispatch.json` contains the response body with Discord message JSON and an `attachments[...] .url` CDN link to the posted `insights.md`.
 
-## Update Protocol
-- After any major change, add a bullet to "Recent Changes" and update "Known Issues" if needed.
-- If new workflows or conventions are introduced, document them here.
-- If a bug is fixed or a new integration is added, note it here.
+Validation / quality gates (evidence):
+- YAMLs: `validate_yaml.py` output: `notify_test.yml: OK`, `daily.yml: OK`.
+- Tests: local pytest run previously returned `7 passed`.
+- Validator: sample `validate.json` indicates `ok: true` and `files_checked` > 0 for the successful run.
 
-## Example Update
-- **2025-09-03:** Fixed embedding conversion bug in vector ingest. All upserts now use Python lists.
+Notes and open items:
+- PII masking and basic budget checks exist; stronger LLM cost telemetry is recommended for production.
+- The AUTO-marker update in `.github/copilot-instructions.md` was applied for the example run, but a small script to update it automatically at orchestrator completion is deferred (I can add `scripts/update_copilot_marker.py` and wire it into the orchestrator if you want).
+
+If you want, I can produce a short patch log (git-style list) of the exact commits/files changed, or open a PR containing these changes for review.
 
 ---
 
-If any section is unclear or missing important conventions, please provide feedback for further refinement. This file should always reflect the current state and rules of the project.
+### Abschluss
+
+
+## 🧰 Mini-Kommandos (PowerShell)
+
+```powershell
+# Orchestrator (CLI) - canonical command
+python -m skoolhud.cli run-orchestrator hoomans
+
+# Backward-compatible alias (keeps older docs/commands working)
+python -m skoolhud.cli orchestrator hoomans
+
+# Prüfen: Artefakte vorhanden?
+dir exports\ai\hoomans\*\ | select Name,Length,LastWriteTime
+
+# Letzten Status sehen (Windows)
+gc exports\status\last_run.json
+
+# JSON kurz validieren (falls jq installiert)
+jq . exports\ai\hoomans\*\validate.json
+```
+
+
+## 📎 Anhang: JSON-Schemas (Kurzform)
+
+`schemas/run_status.schema.json`
+
+```json
+{ "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Run Status","type":"object",
+  "required":["run_id","tenants","steps","ok","artifacts"],
+  "properties":{
+   "run_id":{"type":"string","pattern":"^\\d{8}-\\d{6}$"},
+    "tenants":{"type":"array","items":{"type":"string"}},
+    "steps":{"type":"array","items":{"type":"string"}},
+    "ok":{"type":"boolean"},
+    "errors":{"type":"array","items":{"type":"string"}},
+    "artifacts":{"type":"object"}
+}}
+```
+
+`schemas/validate.schema.json`
+
+```json
+{ "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "title":"Validation Summary","type":"object",
+  "required":["ok","files_checked"],
+  "properties":{
+    "ok":{"type":"boolean"},
+    "errors":{"type":"array","items":{"type":"string"}},
+    "warnings":{"type":"array","items":{"type":"string"}},
+    "files_checked":{"type":"integer","minimum":0}
+}}
+```
+
+
+## ℹ️ Prompt-Hinweise (aus OpenAI Cookbook, knapp)
+
+* **Tool-Preambles**: Ziel re-phrasing + Schrittplan + Fortschrittsmeldungen verbessern Nachvollziehbarkeit in agentischen Flows. ([OpenAI Kochbuch][1])
+* **Eifrigkeit steuern**: Weniger Eifrigkeit für schnelle Aufgaben; **persistente Agenten** bei komplexen Aufgaben, klare Stop-Bedingungen/Unsicherheits-Regeln definieren. ([OpenAI Kochbuch][1])
+* **Reasoning-/Verbosity-Kontrolle**: Präzise Prompt-Vorgaben zur Länge & Planung erhöhen Zuverlässigkeit. ([OpenAI Kochbuch][1])
+
+
+### Abschluss
+
+Wenn **alle** Punkte der **FERTIG-Checkliste** erledigt sind **und** die DoD-Kriterien erfüllt sind, markiere in `build_checklist.json` `"finished": true` — **dann ist der Run FERTIG**.
+
+[1]: https://cookbook.openai.com/examples/gpt-5/gpt-5_prompting_guide "GPT-5 prompting guide"

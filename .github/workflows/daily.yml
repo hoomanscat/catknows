@@ -12,7 +12,7 @@ jobs:
       contents: read
     env:
       SKOOL_COOKIE: ${{ secrets.SKOOL_COOKIE }}
-      TENANT_SLUG: hoomans
+      TENANT_SLUG: "example-tenant"
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       DISCORD_WEBHOOK_STATUS: ${{ secrets.DISCORD_WEBHOOK_STATUS }}
       DISCORD_WEBHOOK_ALERTS: ${{ secrets.DISCORD_WEBHOOK_ALERTS }}
@@ -72,7 +72,7 @@ jobs:
           retention-days: 7
 
       - name: Notify Discord (pretty embed)
-        if: ${{ env.DISCORD_WEBHOOK_URL != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || env.DISCORD_WEBHOOK_URL != '' }}
         shell: python
         env:
           WEBHOOK: ${{ env.DISCORD_WEBHOOK_URL }}
@@ -149,7 +149,7 @@ jobs:
           with urllib.request.urlopen(req) as r:
               print("Discord status:", r.status)
       - name: Upload reports (artifact)
-        if: always()
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: reports-${{ env.TENANT_SLUG }}

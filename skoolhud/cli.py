@@ -2,11 +2,13 @@ import typer, sys, json, time
 from sqlalchemy import select
 from .db import Base, engine, SessionLocal
 from .models import Tenant
-from .config import settings
+from .config import settings, get_tenant_slug
 from .fetcher import SkoolFetcher
 from .normalizer import normalize_members_json
-from skoolhud.vector.ingest import ingest_members_to_vector as ingest_vectors
-from skoolhud.vector.query import search as search_vectors
+from .vector.ingest import ingest_members_to_vector
+from .vector.query import search as search_vectors
+from .vector.db import get_client, get_or_create_collection, similarity_search
+from .ai.orchestrator import run_orchestrator
 
 app = typer.Typer(help="Skool HUD CLI")
 
@@ -29,20 +31,22 @@ def count_members(slug: str = typer.Option(..., help="Tenant Slug")):
         typer.echo(f"Tenant '{slug}' hat {count} Member in der DB.")
 
 @app.command("vectors-ingest")
-def vectors_ingest(tenant: str = typer.Option("hoomans", "--tenant")):
+def vectors_ingest(tenant: str | None = typer.Option(None, "--tenant")):
     """Vektor-Store mit Reports/CSVs füttern."""
     import os
-    os.environ["TENANT"] = tenant
-    ingest_vectors(tenant)
+    resolved = get_tenant_slug(tenant)
+    os.environ["TENANT"] = resolved
+    ingest_members_to_vector(resolved)
 
 @app.command("vectors-search")
 def vectors_search(
     query: str = typer.Argument(...),
-    tenant: str = typer.Option("hoomans", "--tenant"),
+    tenant: str | None = typer.Option(None, "--tenant"),
     k: int = typer.Option(5, "--k"),
 ):
     """Semantische Suche im Vektor-Store (tenant-isoliert)."""
-    search_vectors(query=query, tenant=tenant, k=k)
+    resolved = get_tenant_slug(tenant)
+    search_vectors(query=query, tenant=resolved, k=k)
 
 @app.command()
 def add_tenant(slug: str = typer.Option(..., help="Kurzname, z. B. 'hoomans'"),
@@ -397,27 +401,44 @@ def fetch_leaderboard_all(slug: str, window: str = typer.Option("all", help="all
 
     f = SkoolFetcher(settings.base_url, t.group_path, t.cookie_header, slug)
 
-    offset = 0
-    total_ins = total_upd = total_scanned = 0
-    while True:
-        data, route, fpath = f.fetch_leaderboard_page(window=window, offset=offset, limit=limit)
-        res = normalize_leaderboard_json(s, slug, build_id="", data=data, fpath=fpath, window=window)
-        s.commit()
-        typer.echo(f"[{window}] offset={offset} -> inserted={res['inserted']}, updated={res['updated']}, scanned={res['scanned']}")
-        total_ins += res["inserted"]; total_upd += res["updated"]; total_scanned += res["scanned"]
 
-        # Break: weniger als limit Einträge → letzte Seite
-        try:
-            users = (data.get("pageProps", {}).get("s", {})
-                           .get({"all":"allTime","30":"past30Days","7":"past7Days"}[window], {})
-                           .get("users", [])) or []
-        except Exception:
-            users = []
-        if len(users) < limit:
-            break
-        offset += limit
+@app.command("run-orchestrator")
+def run_orch(
+    tenant: str = typer.Option(..., help="Tenant slug, e.g. 'hoomans'"),
+    run_id: str | None = typer.Option(None, help="Optional run id (defaults to timestamp)"),
+    force: bool = typer.Option(False, help="Force dispatch even if cost-guard would block"),
+):
+    """Run the AI orchestrator (validator → analysts → composer → dispatcher) for a tenant."""
+    resolved = get_tenant_slug(tenant)
+    typer.echo(f"Starting orchestrator for tenant '{resolved}' (run_id={run_id}, force={force})")
+    code = run_orchestrator(resolved, run_id, force=force)
+    if isinstance(code, int) and code != 0:
+        raise typer.Exit(code=code)
+    typer.echo("Orchestrator completed.")
 
-    typer.echo(f"FERTIG [{window}]. Summe inserted={total_ins}, updated={total_upd}, scanned={total_scanned}")
+
+@app.command("orchestrator")
+def orchestrator(
+    tenant: str = typer.Option(..., help="Tenant slug, e.g. 'hoomans'"),
+    run_id: str | None = typer.Option(None, help="Optional run id (defaults to timestamp)"),
+    force: bool = typer.Option(False, help="Force dispatch even if cost-guard would block"),
+):
+    """Backward-compatible alias for `run-orchestrator`."""
+    resolved = get_tenant_slug(tenant)
+    typer.echo(f"Alias 'orchestrator' invoked — forwarding to 'run-orchestrator' (tenant={resolved})")
+    # forward to the canonical command
+    run_orch(tenant=resolved, run_id=run_id, force=force)
+
+
+@app.command()
+def orchestrate(tenant: str | None = typer.Option(None, help="Tenant slug"),
+                run_id: str | None = typer.Option(None, help="Optional run id"),
+                force: bool = typer.Option(False, help="Force posting to webhooks, bypassing post-guards")):
+    """Run the AI orchestrator for a tenant (MVP dry-run)."""
+    from skoolhud.ai.orchestrator import run_orchestrator
+    resolved = get_tenant_slug(tenant)
+    typer.echo(f"Start orchestrator for tenant={resolved} (force={force})")
+    run_orchestrator(resolved, run_id, force=force)
 
 import typer
 from datetime import datetime, timezone, date
@@ -520,17 +541,26 @@ def snapshot_members_daily(slug: str, day_str: Optional[str] = None):
         typer.echo(f"member_daily_snapshot: inserted={inserted} updated={updated} day={the_day}")
     finally:
         s.close()
-# --- NEU: Vector CLI Commands (am Ende der Datei oder bei den anderen Typer-Kommandos) ---
-import typer
-from skoolhud.vector.ingest import ingest_members_to_vector
-from skoolhud.vector.db import get_client, get_or_create_collection, similarity_search
-
 app = typer.Typer(add_completion=False) if 'app' not in globals() else app
 
 @app.command("vector-ingest")
 def vector_ingest(slug: str = typer.Argument(...), collection: str = typer.Option("skool_members", help="Chroma Collection Name")):
     """Ingest aller Members eines Tenants in den Vector Store (mit Embeddings)."""
     ingest_members_to_vector(slug, collection_name=collection)
+
+
+@app.command("vector-ingest-reports")
+def vector_ingest_reports(
+    tenant: str = typer.Argument(..., help="Tenant slug, e.g. 'hoomans'"),
+    collection: str = typer.Option("skool_reports", help="Chroma collection name"),
+    pattern: str = typer.Option(None, help="Optional glob pattern to include (can be provided multiple times)"),
+):
+    """Ingest report files (exports/reports/<tenant>/) into the vector store."""
+    pats = [pattern] if pattern else None
+    # local import to satisfy static analyzers and avoid module-level resolution issues
+    from .vector.ingest import ingest_reports_to_vector
+    ingest_reports_to_vector(tenant, patterns=pats, collection_name=collection)
+
 
 @app.command("vector-search")
 def vector_search(query: str = typer.Argument(...), slug: str = typer.Option(None, help="Optional: Tenant-Filter"), top_k: int = typer.Option(5, help="Anzahl Treffer")):

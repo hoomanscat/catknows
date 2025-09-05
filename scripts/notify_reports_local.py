@@ -1,75 +1,81 @@
-# scripts/notify_reports_local.py
-# Sendet lokal generierte Reports (exports/reports) per Discord Webhooks aus .env
+"""
+scripts/notify_reports_local.py
+Send local exports/reports files to Discord webhooks (used for local runs).
+This file provides a small, self-contained notifier that prefers tenantized files
+and falls back to simple DB-driven lookups when needed.
+"""
+
 import os
 import sys
 import re
 import json
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List, Optional
+from datetime import datetime, timezone
 
 from skoolhud.utils.net import post_with_retry
 
-# .env laden (optional)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+# Root directory where agent reports are written
+REPORTS_ROOT = Path(__file__).resolve().parent / "exports" / "reports"
 
-ROOT = Path(__file__).resolve().parents[1]
-REPORTS_ROOT = ROOT / "exports" / "reports"
 
-# kleine Utils
-def _env(*names: str) -> Optional[str]:
-    """Erste gesetzte Env-Var aus names zurückgeben."""
-    for n in names:
-        v = os.getenv(n)
+def _env(*keys: str) -> str:
+    """Return the first non-empty environment variable for the given keys."""
+    for k in keys:
+        v = os.environ.get(k)
         if v:
-            return v.strip()
-    return None
+            return v
+    return ""
 
-def _short(s: str, limit: int = 1800) -> str:
-    s = s.strip()
-    return s if len(s) <= limit else (s[: limit - 20].rstrip() + "\n… (truncated)")
 
-def _read_text(p: Path) -> Optional[str]:
-    if p.exists() and p.is_file():
-        try:
-            return p.read_text(encoding="utf-8")
-        except Exception:
-            return p.read_text(errors="ignore")
-    return None
+def _short(text: Optional[str], max_len: int = 1900) -> str:
+    if not text:
+        return ""
+    s = str(text)
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
 
-def _glob_one(*patterns) -> Optional[Path]:
-    """Erstes existierende File nach Patterns (in Priorität) zurückgeben."""
+
+def _read_text(path: Path) -> str:
+    p = Path(path)
+    if not p.exists():
+        return ""
+    try:
+        return p.read_text(encoding="utf-8")
+    except Exception:
+        return p.read_text(errors="ignore")
+
+
+def _glob_tenant(tenant: str, *patterns: str) -> Optional[Path]:
+    """Return first matching path searching under REPORTS_ROOT and the repo root.
+    Patterns are glob-style like "{tenant}/kpi_*.md" or "kpi_*.md".
+    """
+    from glob import glob
+
     for pat in patterns:
-        matches = sorted(REPORTS_ROOT.glob(pat), reverse=True)
-        if matches:
-            return matches[0]
+        # try under exports/reports first
+        candidate = str(REPORTS_ROOT / pat)
+        for p in sorted(glob(candidate, recursive=True)):
+            if Path(p).is_file():
+                return Path(p)
+        # fallback to glob pattern as given (repo-root)
+        for p in sorted(glob(pat, recursive=True)):
+            if Path(p).is_file():
+                return Path(p)
     return None
 
-def _glob_tenant(tenant: str, *patterns) -> Optional[Path]:
-    """Sucht zuerst unter exports/reports/{tenant}, sonst im Root."""
-    base_tenant = REPORTS_ROOT / tenant
-    for pat in patterns:
-        # tenantisiert
-        matches = sorted(base_tenant.glob(pat), reverse=True)
-        if matches:
-            return matches[0]
-        # un-tenantisiert (fallback)
-        matches = sorted(REPORTS_ROOT.glob(pat), reverse=True)
-        if matches:
-            return matches[0]
-    return None
 
-def _send_discord(webhook_url: str, content: Optional[str] = None,
-                  username: Optional[str] = None,
-                  embeds: Optional[List[Dict[str, Any]]] = None,
-                  file_path: Optional[Path] = None) -> int:
+def _send_discord(webhook_url: str, *, content: Optional[str] = None, embeds: Optional[List[Dict]] = None,
+                  username: Optional[str] = None, file_path: Optional[Path] = None) -> int:
+    """Post a payload (optionally with a file) to a Discord webhook using post_with_retry.
+
+    Returns the HTTP status code (or -1 on error).
+    """
     if not webhook_url:
-        print("SKIP: webhook_url empty")
-        return 0
+        print("WARN: webhook_url empty -> skip")
+        return -1
 
     payload: Dict[str, Any] = {}
     if content:
@@ -80,11 +86,10 @@ def _send_discord(webhook_url: str, content: Optional[str] = None,
         payload["embeds"] = embeds
 
     files = None
-    if file_path and file_path.exists():
-        files = {"file": (file_path.name, file_path.open("rb"))}
+    if file_path and Path(file_path).exists():
+        files = {"file": (Path(file_path).name, Path(file_path).open("rb"))}
 
-    # Für Debug im CI nicht ganze URL loggen
-    head = webhook_url[:60] + "..."
+    head = webhook_url[:60] + ("..." if len(webhook_url) > 60 else "")
     print(f"POST -> {head}  file={file_path.name if file_path else '-'}")
 
     try:
@@ -92,13 +97,14 @@ def _send_discord(webhook_url: str, content: Optional[str] = None,
             resp = post_with_retry(webhook_url, json=payload, files=files, timeout=15)
         else:
             resp = post_with_retry(webhook_url, json=payload, timeout=15)
-        print(f"Discord status: {getattr(resp, 'status_code', '??')}")
-        if getattr(resp, 'status_code', 0) >= 300:
+        status = getattr(resp, "status_code", getattr(resp, "status", "??"))
+        print(f"Discord status: {status}")
+        if getattr(resp, "status_code", 0) >= 300:
             try:
                 print("Response:", resp.text[:500])
             except Exception:
                 pass
-        return getattr(resp, 'status_code', -1)
+        return int(status) if isinstance(status, int) else 0
     except Exception as e:
         print("ERROR sending to discord:", e)
         return -1
@@ -114,7 +120,8 @@ def post_kpi(tenant: str):
     if not webhook:
         print("SKIP KPI: no webhook")
         return
-    md = _glob_tenant(tenant, f"{tenant}/kpi_*.md", "kpi_*.md")
+    # prefer ai-generated KPI summary if present, then legacy kpi_*.md
+    md = _glob_tenant(tenant, f"{tenant}/ai_kpi_summary_*.md", f"{tenant}/kpi_*.md", "ai_kpi_summary_*.md", "kpi_*.md")
     if not md:
         print("SKIP KPI: no file found")
         return
@@ -154,19 +161,134 @@ def post_health(tenant: str):
     if not webhook:
         print("SKIP HEALTH: no webhook")
         return
-    md = _glob_tenant(tenant, f"{tenant}/member_health_summary.md", "member_health_summary.md")
+    # prefer ai-generated health plan summary if present
+    md = _glob_tenant(tenant, f"{tenant}/ai_health_plan_*.md", f"{tenant}/member_health_summary.md", "ai_health_plan_*.md", "member_health_summary.md")
     csv = _glob_tenant(tenant, f"{tenant}/member_health.csv", "member_health.csv")
-    if not md:
-        print("SKIP HEALTH: no file found")
+    # If a CSV exists, build a concise markdown summary from it (stats + top/bottom lists)
+    summary_md = ""
+    if csv and csv.exists():
+        try:
+            import csv as _csv
+            from statistics import mean
+            rows = []
+            csv_path = csv
+            with open(csv_path, 'r', encoding='utf-8', errors='ignore') as fh:
+                reader = _csv.DictReader(fh)
+                for r in reader:
+                    rows.append(r)
+
+            summary_lines = []
+            summary_lines.append(f"# ❤️ Member Health — {tenant}\n")
+            summary_lines.append(f"Total rows: {len(rows)}")
+
+            # Try to find a numeric score field
+            score_field = None
+            if rows:
+                sample = rows[0]
+                for k in sample.keys():
+                    if re.search(r"health|score|engag|points", k, re.IGNORECASE):
+                        score_field = k
+                        break
+
+            scores = []
+            if score_field:
+                for r in rows:
+                    v = r.get(score_field, "")
+                    try:
+                        scores.append(float(str(v).replace(',', '.')))
+                    except Exception:
+                        continue
+            if scores:
+                avg = mean(scores)
+                summary_lines.append(f"\n**{score_field}** — avg: {avg:.2f}, min: {min(scores):.2f}, max: {max(scores):.2f}")
+
+                # build top/bottom tables
+                # enrich rows with parsed score
+                enriched = []
+                for r in rows:
+                    try:
+                        s = float(str(r.get(score_field, '')).replace(',', '.'))
+                    except Exception:
+                        s = None
+                    enriched.append((s, r))
+                enriched_sorted = [e for e in enriched if e[0] is not None]
+                enriched_sorted.sort(key=lambda x: x[0], reverse=True)
+
+                def build_table(items):
+                    lines = []
+                    lines.append("| Rank | Name | Handle | Score |")
+                    lines.append("|---:|---|---|---:|")
+                    for i, (sc, rr) in enumerate(items, start=1):
+                        name = rr.get('name') or rr.get('first_name') or rr.get('display') or rr.get('handle') or ''
+                        handle = rr.get('handle') or rr.get('user') or ''
+                        lines.append(f"| {i} | {name} | {handle} | {sc:.2f} |")
+                    return "\n".join(lines)
+
+                top_n = enriched_sorted[:5]
+                bot_n = enriched_sorted[-5:][::-1] if len(enriched_sorted) >= 5 else enriched_sorted[::-1]
+
+                if top_n:
+                    summary_lines.append("\n## Top members by score\n")
+                    summary_lines.append(build_table(top_n))
+                if bot_n:
+                    summary_lines.append("\n## Bottom members by score\n")
+                    summary_lines.append(build_table(bot_n))
+            else:
+                # No numeric score, show a small sample of rows for human reading
+                sample_rows = rows[:10]
+                if sample_rows:
+                    cols = list(sample_rows[0].keys())[:4]
+                    # build table header
+                    header = "| " + " | ".join(cols) + " |"
+                    sep = "|" + "---|" * len(cols)
+                    lines = [header, sep]
+                    for r in sample_rows:
+                        vals = [str(r.get(c, ''))[:30].replace('\n',' ') for c in cols]
+                        lines.append("| " + " | ".join(vals) + " |")
+                    summary_lines.append("\n".join(lines))
+
+            summary_md = "\n\n".join(summary_lines)
+        except Exception as e:
+            print("Error building health summary from CSV:", e)
+
+    # If there's an AI-generated Markdown summary, prefer it but append CSV-derived summary if present
+    if md and md.exists():
+        text = _read_text(md) or ""
+        if summary_md:
+            text = text.strip() + "\n\n---\n\n" + summary_md
+        embeds = [{
+            "title": f"❤️ Member Health — {tenant}",
+            "description": _short(text),
+            "footer": {"text": "SkoolHUD"},
+            "color": 0xf39c12
+        }]
+        _send_discord(webhook, embeds=embeds, username="Spidey Bot", file_path=csv)
         return
-    text = _read_text(md) or ""
-    embeds = [{
-        "title": f"❤️ Member Health — {tenant}",
-        "description": _short(text),
-        "footer": {"text": "SkoolHUD"},
-        "color": 0xf39c12
-    }]
-    _send_discord(webhook, embeds=embeds, username="Spidey Bot", file_path=csv)
+
+    # If no md exists but we built a summary from CSV, post it
+    if summary_md:
+        embeds = [{
+            "title": f"❤️ Member Health — {tenant}",
+            "description": _short(summary_md, 1900),
+            "footer": {"text": "SkoolHUD"},
+            "color": 0xf39c12
+        }]
+        _send_discord(webhook, embeds=embeds, username="Spidey Bot", file_path=csv)
+        return
+
+    # fallback: if md present (but csv absent), post md
+    if md and md.exists():
+        text = _read_text(md) or ""
+        embeds = [{
+            "title": f"❤️ Member Health — {tenant}",
+            "description": _short(text),
+            "footer": {"text": "SkoolHUD"},
+            "color": 0xf39c12
+        }]
+        _send_discord(webhook, embeds=embeds, username="Spidey Bot")
+        return
+
+    print("SKIP HEALTH: no file found")
 
 def _extract_new_joiners_from_kpi(md_text: str) -> List[str]:
     lines = md_text.splitlines()
@@ -195,67 +317,108 @@ def post_new_joiners(tenant: str):
     if not webhook:
         print("SKIP NEW JOINERS: no webhook")
         return
-    # Prefer explicit joiners files produced by the joiners agent
+
+    # Prefer explicit joiners files produced by agent; otherwise compute from DB
     out_dir = REPORTS_ROOT / tenant
-    week = out_dir / "new_joiners_week.md"
-    last = out_dir / "new_joiners_last_week.md"
-    d30 = out_dir / "new_joiners_30d.md"
+    week_file = out_dir / "new_joiners_week.md"
+    last_file = out_dir / "new_joiners_last_week.md"
+    d30_file = out_dir / "new_joiners_30d.md"
 
-    sent_any = False
-    if week.exists():
-        text = _read_text(week) or ""
-        if text.strip():
-            _send_discord(webhook, embeds=[{
-                "title": f"✨ New Joiners — This Week — {tenant}",
-                "description": _short(text, 1800),
-                "footer": {"text": "SkoolHUD"},
-                "color": 0x9b59b6
-            }], username="Captain Hook")
-            sent_any = True
-    if last.exists():
-        text = _read_text(last) or ""
-        if text.strip():
-            _send_discord(webhook, embeds=[{
-                "title": f"✨ New Joiners — Last Week — {tenant}",
-                "description": _short(text, 1800),
-                "footer": {"text": "SkoolHUD"},
-                "color": 0x9b59b6
-            }], username="Captain Hook")
-            sent_any = True
-    if d30.exists():
-        text = _read_text(d30) or ""
-        if text.strip():
-            _send_discord(webhook, embeds=[{
-                "title": f"✨ New Joiners — Last 30 days — {tenant}",
-                "description": _short(text, 1800),
-                "footer": {"text": "SkoolHUD"},
-                "color": 0x9b59b6
-            }], username="Captain Hook")
-            sent_any = True
-
-    if sent_any:
+    if week_file.exists() or last_file.exists() or d30_file.exists():
+        # Post any explicit files present
+        if week_file.exists():
+            text = _read_text(week_file) or ""
+            if text.strip():
+                _send_discord(webhook, embeds=[{
+                    "title": f"✨ New Joiners — This Week — {tenant}",
+                    "description": _short(text, 1800),
+                    "footer": {"text": "SkoolHUD"},
+                    "color": 0x9b59b6
+                }], username="Captain Hook")
+        if last_file.exists():
+            text = _read_text(last_file) or ""
+            if text.strip():
+                _send_discord(webhook, embeds=[{
+                    "title": f"✨ New Joiners — Last Week — {tenant}",
+                    "description": _short(text, 1800),
+                    "footer": {"text": "SkoolHUD"},
+                    "color": 0x9b59b6
+                }], username="Captain Hook")
+        if d30_file.exists():
+            text = _read_text(d30_file) or ""
+            if text.strip():
+                _send_discord(webhook, embeds=[{
+                    "title": f"✨ New Joiners — Last 30 days — {tenant}",
+                    "description": _short(text, 1800),
+                    "footer": {"text": "SkoolHUD"},
+                    "color": 0x9b59b6
+                }], username="Captain Hook")
         return
 
-    # Fallback: extract from KPI as before
-    md = _glob_tenant(tenant, f"{tenant}/kpi_*.md", "kpi_*.md")
-    if not md:
-        print("SKIP NEW JOINERS: no KPI file and no joiners files")
-        return
-    text = _read_text(md) or ""
-    items = _extract_new_joiners_from_kpi(text)
-    if not items:
-        print("SKIP NEW JOINERS: no items extracted from KPI")
-        return
+    # Fallback: compute new joiners from DB by joined_date
+    try:
+        from skoolhud.db import SessionLocal
+        from skoolhud.models import Member
+        from dateutil import parser as dtparser
+        from datetime import datetime, timezone
 
-    # Schöne Liste bauen
-    bullet = "\n".join(f"• {it}" for it in items[:20])
-    embeds = [{
-        "title": f"✨ New Joiners — {tenant}",
-        "description": _short(bullet, 1800),
-        "footer": {"text": "SkoolHUD"},
-        "color": 0x9b59b6
-    }]
-    _send_discord(webhook, embeds=embeds, username="Captain Hook")
+        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+        week_members = []
+        last_week_members = []
+        month_members = []
+
+        with SessionLocal() as s:
+            q = s.query(Member).filter(Member.tenant == tenant).all()
+            for m in q:
+                jd = getattr(m, 'joined_date', None)
+                if not jd:
+                    continue
+                try:
+                    dt = dtparser.parse(jd)
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    # ignore unparsable
+                    continue
+                delta = now - dt
+                days = delta.total_seconds() / 86400.0
+                display = f"{m.name or m.first_name or m.handle or m.user_id} - @{m.skool_tag or (m.handle or '')} - joined {dt.date()} ({int(days)}d)"
+                if days < 7:
+                    week_members.append(display)
+                elif 7 <= days < 14:
+                    last_week_members.append(display)
+                elif 14 <= days < 30:
+                    month_members.append(display)
+
+        # helper to post list (if long, attach as file)
+        def post_bucket(title: str, items: list):
+            if not items:
+                return
+            body = "\n".join(f"• {it}" for it in items)
+            if len(body) > 1800:
+                # write temp file and attach
+                tmp = out_dir / f"new_joiners_{title.replace(' ','_').lower()}.md"
+                tmp.parent.mkdir(parents=True, exist_ok=True)
+                tmp.write_text(body, encoding='utf-8')
+                _send_discord(webhook, content=None, embeds=[{
+                    "title": f"✨ New Joiners — {title} — {tenant}",
+                    "description": _short(body, 1800),
+                    "footer": {"text": "SkoolHUD"},
+                    "color": 0x9b59b6
+                }], username="Captain Hook", file_path=tmp)
+            else:
+                _send_discord(webhook, embeds=[{
+                    "title": f"✨ New Joiners — {title} — {tenant}",
+                    "description": _short(body, 1800),
+                    "footer": {"text": "SkoolHUD"},
+                    "color": 0x9b59b6
+                }], username="Captain Hook")
+
+        post_bucket("This Week (<7d)", week_members)
+        post_bucket("Last Week (7-14d)", last_week_members)
+        post_bucket("Last 30 days (14-30d)", month_members)
+    except Exception as e:
+        print("SKIP NEW JOINERS: DB error or missing deps:", e)
 
 def post_status(tenant: str):
     webhook = _env("DISCORD_WEBHOOK_STATUS")
@@ -283,7 +446,9 @@ def post_status(tenant: str):
     _send_discord(webhook, embeds=embeds, username="Captain Hook")
 
 def main():
-    tenant = sys.argv[1] if len(sys.argv) > 1 else "hoomans"
+    from skoolhud.config import get_tenant_slug
+    tenant = sys.argv[1] if len(sys.argv) > 1 else None
+    tenant = get_tenant_slug(tenant)
     # optional tenant-spezifische verify.txt erzeugen (für Status), wenn noch nicht da
     verify = REPORTS_ROOT / "verify.txt"
     if not verify.exists():
@@ -307,7 +472,26 @@ def main():
     snap = _glob_tenant(tenant, f"{tenant}/snapshot*.md", "snapshot*.md", f"{tenant}/snapshot*.csv", "snapshot*.csv")
     if webhook:
         if snap:
-            _send_discord(webhook, content=f"Snapshot Report", username="SkoolHUD", file_path=snap)
+            # If the snapshot is a CSV, include a small inline preview (first 8 lines) in the embed
+            try:
+                if snap.suffix.lower() == ".csv":
+                    preview_lines = []
+                    with open(snap, 'r', encoding='utf-8', errors='ignore') as fh:
+                        for i, l in enumerate(fh):
+                            if i >= 8:
+                                break
+                            preview_lines.append(l.rstrip())
+                    preview = "\n".join(preview_lines)
+                    embeds = [{
+                        "title": f"# Snapshot — {tenant} — {snap.stem}",
+                        "description": f"Members snapshot CSV attached.\n\n``n{_short(preview, 1000)}``,",
+                        "footer": {"text": "SkoolHUD"},
+                    }]
+                    _send_discord(webhook, embeds=embeds, username="SkoolHUD", file_path=snap)
+                else:
+                    _send_discord(webhook, content=f"Snapshot Report", username="SkoolHUD", file_path=snap)
+            except Exception:
+                _send_discord(webhook, content=f"Snapshot Report", username="SkoolHUD", file_path=snap)
         else:
             print("SKIP SNAPSHOTS: no file found")
     time.sleep(0.5)

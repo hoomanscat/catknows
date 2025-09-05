@@ -64,6 +64,8 @@ class Member(Base):
     skool_tag = Column(String, index=True, nullable=True)
 
     joined_date = Column(String, nullable=True)
+    # Normalized ISO UTC join timestamp (backfilled by scripts/backfill_joined_date.py)
+    joined_at_utc = Column(String, nullable=True)
     approved_at = Column(String, nullable=True)
     role = Column(String, nullable=True)
 
